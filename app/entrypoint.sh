@@ -32,14 +32,14 @@ done
 export DEEPSEEK_BASE_URL=http://127.0.0.1:9411/model/v1
 export DEEPSEEK_API_KEY="${PRIVASYS_BEARER:-unset}"
 
-BIND_IP=$(hostname -i | awk '{print $1}')
 TRUST=()
 if [[ -n "${HARNESS_PUBLIC_HOST:-}" ]]; then
   TRUST=(--trusted-host "${HARNESS_PUBLIC_HOST}")
 fi
 
-echo "[harness] dsh web on ${BIND_IP}:${PORT} (proxy pid ${PROXY_PID}, trusted-host ${HARNESS_PUBLIC_HOST:-none})"
-# `--profile web --patch` (not the `web` alias, which rejects parent flags):
-# resolveBoot allows a --patch overlay on any profile, including web.
+# host/port are set in the profile overlay's webserver row (0.0.0.0:$PORT),
+# not on the command line — the CLI --host guard rejects 0.0.0.0.
+# `--profile web --patch` (not the `web` alias, which rejects parent flags).
+echo "[harness] dsh web on 0.0.0.0:${PORT} (proxy pid ${PROXY_PID}, trusted-host ${HARNESS_PUBLIC_HOST:-none})"
 exec pnpm dsh --profile web --patch /app/profile.cordis.yml \
-  -- --no-open --host "${BIND_IP}" --port "${PORT}" "${TRUST[@]}"
+  -- --no-open "${TRUST[@]}"
