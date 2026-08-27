@@ -62,5 +62,12 @@ RUN chmod +x /app/entrypoint.sh
 # sessions/settings persist, on the encrypted volume — the overlay points
 # session persistence at /data (see profile.cordis.yml).
 ENV DSH_HOME=/dsh-home
+# Fixed attested topology — the harness always calls Confidential AI and the
+# platform tool apps; the 6.1 DepSet + allowed_callers enforce the actual
+# attestation regardless of hostname, so these belong in the measured image
+# (override at deploy for a different fleet). Model auth on-platform is the
+# attested client cert, not a bearer (see the proxy's onPlatform path).
+ENV HARNESS_MODEL_HOST=confidential-ai.apps.privasys.org
+ENV HARNESS_TOOL_HOSTS=web_search=web-search-brave.apps.privasys.org,web_reader=web-browser-lightpanda.apps.privasys.org,drive=privasys-drive.apps.privasys.org
 WORKDIR /dsh
 ENTRYPOINT ["/app/entrypoint.sh"]
