@@ -173,6 +173,13 @@ func main() {
 			http.Error(w, fmt.Sprintf(`{"error":"egress-proxy: unknown tool %q"}`, name), http.StatusNotFound)
 			return
 		}
+		// /tool/{name}/mcp speaks MCP (Streamable HTTP) so dsh's stock
+		// mcp-client mounts the tool app by configuration alone; any other
+		// path forwards verbatim for direct callers.
+		if path == "mcp" {
+			mcpShim(w, r, client, name, host)
+			return
+		}
 		forward(w, r, client, host, "/"+path, false)
 	})
 	// Anything else is a routing bug in the caller, never a passthrough.

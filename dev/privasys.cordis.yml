@@ -13,3 +13,13 @@
   config:
     provider: deepseek-official
     model: qwen36-35b-a3b-fp8
+- insert:
+    - id: mcp-web-search
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        transport: streamable-http
+        serverName: web_search
+        url: http://127.0.0.1:9412/tool/web_search/mcp
+        headers:
+          authorization: !!js "'Bearer ' + process.env.PRIVASYS_BEARER"
+        failOnStartupError: true
