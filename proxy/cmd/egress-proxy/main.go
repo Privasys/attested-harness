@@ -1,3 +1,6 @@
+// Copyright (c) Privasys. All rights reserved.
+// Licensed under the GNU Affero General Public License v3.0.
+
 // egress-proxy is the attested egress leg of the harness app: a localhost
 // listener through which every outbound attested call — Confidential AI
 // inference, tool apps — must pass. It terminates plain HTTP from the dsh
@@ -9,37 +12,58 @@
 // plugins route through this proxy and render its verdicts; they cannot
 // weaken them.
 //
-// WS1 status: skeleton. The RA-TLS transport and DepSet enforcement are
-// extracted from confidential-ai/internal/agent (ratls_transport.go +
-// depset.go) in the next commit, which also brings the fork-toolchain build
-// (-tags ratls) and the ra-tls-clients sibling module, mirroring the
-// confidential-ai build.
+// Routes:
+//
+//	GET  /healthz                 liveness + current dependency fold
+//	ANY  /model/<path>            -> https://$HARNESS_MODEL_HOST/<path>
+//	ANY  /tool/{name}/<path>      -> https://<host from $HARNESS_TOOL_HOSTS>/<path>
+//
+// Every upstream dial is attested per request (fresh challenge nonce, quote
+// verification, declared-dependency gate, mutual client cert when the callee
+// asks). A peer that is not in the 6.1 set is refused — the WS1 posture has
+// no tool-grant passthrough yet (grantPinned is always false); per-session
+// user tools arrive with WS2.
+//
+// Build: production images use the Privasys Go fork with -tags ratls (the
+// ClientHello challenge extension). A stock-toolchain build compiles but
+// Connect fails at runtime, so every egress refuses — fail closed, never
+// fail open.
 package main
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
+	"strings"
+	"time"
+
+	"github.com/Privasys/attested-harness/proxy/internal/attested"
 )
 
 type config struct {
 	// listenAddr is the loopback address the dsh plugins call.
 	listenAddr string
-	// managerURL + containerName + containerToken locate the manager's
-	// per-container dependency endpoint (GET .../containers/{name}/dependencies),
-	// the same source confidential-ai's DepSet enforces from.
-	managerURL     string
-	containerName  string
-	containerToken string
+	// modelHost is the Confidential AI hostname behind /model/*.
+	modelHost string
+	// toolHosts maps a tool name (the /tool/{name}/ segment) to its
+	// hostname. WS1: static from HARNESS_TOOL_HOSTS
+	// ("drive=privasys-drive.apps.privasys.org,web_search=...");
+	// WS2 replaces this with the fleet tool-spec.
+	toolHosts map[string]string
 }
 
 func loadConfig() config {
 	c := config{
-		listenAddr:     envOr("EGRESS_PROXY_LISTEN", "127.0.0.1:9411"),
-		managerURL:     os.Getenv("PRIVASYS_MANAGER_URL"),
-		containerName:  os.Getenv("PRIVASYS_CONTAINER_NAME"),
-		containerToken: os.Getenv("PRIVASYS_CONTAINER_TOKEN"),
+		listenAddr: envOr("EGRESS_PROXY_LISTEN", "127.0.0.1:9411"),
+		modelHost:  os.Getenv("HARNESS_MODEL_HOST"),
+		toolHosts:  map[string]string{},
+	}
+	for _, kv := range strings.Split(os.Getenv("HARNESS_TOOL_HOSTS"), ",") {
+		if name, host, ok := strings.Cut(strings.TrimSpace(kv), "="); ok && name != "" && host != "" {
+			c.toolHosts[name] = host
+		}
 	}
 	return c
 }
@@ -51,24 +75,84 @@ func envOr(k, d string) string {
 	return d
 }
 
+// forward re-issues the inbound request against https://<host><path> over the
+// attested client and streams the response back. The upstream transport does
+// the whole trust dance; this function only rewrites the target.
+func forward(w http.ResponseWriter, r *http.Request, client *http.Client, host, path string) {
+	if path == "" || path[0] != '/' {
+		path = "/" + path
+	}
+	url := "https://" + host + path
+	if r.URL.RawQuery != "" {
+		url += "?" + r.URL.RawQuery
+	}
+	req, err := http.NewRequestWithContext(r.Context(), r.Method, url, r.Body)
+	if err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":"egress-proxy: build request: %v"}`, err), http.StatusBadGateway)
+		return
+	}
+	req.Header = r.Header.Clone()
+	req.Host = host
+	resp, err := client.Do(req)
+	if err != nil {
+		// Attestation refusals land here: surface the exact verdict to the
+		// plugin so the session log records WHY the leg was refused.
+		http.Error(w, fmt.Sprintf(`{"error":"egress-proxy: %v"}`, err), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	for k, vs := range resp.Header {
+		for _, v := range vs {
+			w.Header().Add(k, v)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
+}
+
 func main() {
 	cfg := loadConfig()
 
+	// The declared dependency set is the proxy's routing authority: refresh
+	// it from the enclave manager for the life of the process. Off platform
+	// (no PRIVASYS_MANAGER_URL) it stays disabled and only the legacy
+	// per-host pins would apply — the WS1 proxy sets none, so every attested
+	// dial then relies on quote verification alone (dev only).
+	deps := attested.NewDepSet()
+	deps.Start(time.Minute)
+
+	transport := attested.NewRATLSTransport()
+	transport.Deps = deps
+	client := &http.Client{Transport: transport, Timeout: 5 * time.Minute}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprintln(w, `{"status":"ok","component":"egress-proxy"}`)
+		fmt.Fprintf(w, `{"status":"ok","component":"egress-proxy","dependency_fold":%q}`+"\n", deps.Fold())
 	})
-	// Route table (WS1): /model/* → CAI, /tool/{name}/* → the named tool
-	// app, both over the attested transport with 6.1 enforcement. Until the
-	// transport lands, refuse loudly rather than pass through unattested.
+	mux.HandleFunc("/model/", func(w http.ResponseWriter, r *http.Request) {
+		if cfg.modelHost == "" {
+			http.Error(w, `{"error":"egress-proxy: HARNESS_MODEL_HOST not configured"}`, http.StatusNotImplemented)
+			return
+		}
+		forward(w, r, client, cfg.modelHost, strings.TrimPrefix(r.URL.Path, "/model"))
+	})
+	mux.HandleFunc("/tool/", func(w http.ResponseWriter, r *http.Request) {
+		rest := strings.TrimPrefix(r.URL.Path, "/tool/")
+		name, path, _ := strings.Cut(rest, "/")
+		host := cfg.toolHosts[name]
+		if host == "" {
+			http.Error(w, fmt.Sprintf(`{"error":"egress-proxy: unknown tool %q"}`, name), http.StatusNotFound)
+			return
+		}
+		forward(w, r, client, host, "/"+path)
+	})
+	// Anything else is a routing bug in the caller, never a passthrough.
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w,
-			`{"error":"egress-proxy: attested transport not wired yet (WS1); refusing unattested egress"}`,
-			http.StatusNotImplemented)
+		http.Error(w, `{"error":"egress-proxy: unrouted path; only /model/* and /tool/{name}/* egress"}`, http.StatusNotFound)
 	})
 
-	log.Printf("[egress-proxy] listening on %s (manager=%s container=%s)",
-		cfg.listenAddr, cfg.managerURL, cfg.containerName)
+	log.Printf("[egress-proxy] listening on %s (model=%s tools=%d deps_enabled=%v)",
+		cfg.listenAddr, cfg.modelHost, len(cfg.toolHosts), deps.Enabled())
 	if err := http.ListenAndServe(cfg.listenAddr, mux); err != nil {
 		log.Fatalf("[egress-proxy] listen: %v", err)
 	}

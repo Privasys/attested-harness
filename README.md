@@ -57,6 +57,6 @@ audit; dedicated deployments remain for blast-radius preference.
 
 ## Status
 
-Skeleton. Work streams: WS1 egress proxy (extraction from the platform's
+WS1 transport LANDED: the egress proxy carries live attested calls (fork
 confidential-ai agent transport), WS2 the four plugins, WS3 packaging + dev
 E2E, WS4 consent/store/docs, WS5 isolation rails.
