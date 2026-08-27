@@ -39,5 +39,5 @@ if [[ -n "${HARNESS_PUBLIC_HOST:-}" ]]; then
 fi
 
 echo "[harness] dsh web on ${BIND_IP}:${PORT} (proxy pid ${PROXY_PID}, trusted-host ${HARNESS_PUBLIC_HOST:-none})"
-exec pnpm dsh web --no-open --host "${BIND_IP}" --port "${PORT}" "${TRUST[@]}" \
-  --patch /app/profile.cordis.yml
+exec pnpm dsh --patch /app/profile.cordis.yml \
+  web --no-open --host "${BIND_IP}" --port "${PORT}" "${TRUST[@]}"
