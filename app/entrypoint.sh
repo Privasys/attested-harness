@@ -42,9 +42,12 @@ if [[ -n "${HARNESS_PUBLIC_HOST:-}" ]]; then
   TRUST=(--trusted-host "${HARNESS_PUBLIC_HOST}")
 fi
 
-# dsh binds the internal loopback port (host/port set in the overlay's
-# webserver row to 127.0.0.1:$DSH_PORT); the proxy fronts $PORT.
-# `--profile web --patch` (not the `web` alias, which rejects parent flags).
-echo "[harness] dsh web on 127.0.0.1:${DSH_PORT}, proxy fronts 0.0.0.0:${PORT} (pid ${PROXY_PID}, trusted-host ${HARNESS_PUBLIC_HOST:-none})"
-exec pnpm dsh --profile web --patch /app/profile.cordis.yml \
+# Run the COMPILED dsh (lib/bin.js), NOT `pnpm dsh` (which is
+# `node --import tsx/esm src/bin.ts` — on-the-fly TS transpile of the whole
+# tree, minutes-slow under the enclave's constrained CPU and the cause of the
+# boot never finishing before the health check). dsh binds the internal
+# loopback port (overlay webserver row 127.0.0.1:$DSH_PORT); the proxy fronts
+# $PORT. `--profile web --patch` (the `web` alias rejects parent flags).
+echo "[harness] dsh web (compiled) on 127.0.0.1:${DSH_PORT}, proxy fronts 0.0.0.0:${PORT} (pid ${PROXY_PID}, trusted-host ${HARNESS_PUBLIC_HOST:-none})"
+exec node /dsh/apps/cli/lib/bin.js --profile web --patch /app/profile.cordis.yml \
   -- --no-open "${TRUST[@]}"
