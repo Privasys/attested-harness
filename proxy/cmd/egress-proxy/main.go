@@ -78,7 +78,7 @@ func envOr(k, d string) string {
 // forward re-issues the inbound request against https://<host><path> over the
 // attested client and streams the response back. The upstream transport does
 // the whole trust dance; this function only rewrites the target.
-func forward(w http.ResponseWriter, r *http.Request, client *http.Client, host, path string) {
+func forward(w http.ResponseWriter, r *http.Request, client *http.Client, host, path string, repro bool) {
 	if path == "" || path[0] != '/' {
 		path = "/" + path
 	}
@@ -92,7 +92,14 @@ func forward(w http.ResponseWriter, r *http.Request, client *http.Client, host, 
 		return
 	}
 	req.Header = r.Header.Clone()
+	// The plugin-to-proxy hop is loopback: upstream compression only turns
+	// the SSE stream into opaque bytes the repro scanner (and any future
+	// in-proxy policy) cannot read. Plaintext end-to-end.
+	req.Header.Del("Accept-Encoding")
 	req.Host = host
+	if repro {
+		injectReproOptIn(req)
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		// Attestation refusals land here: surface the exact verdict to the
@@ -101,13 +108,35 @@ func forward(w http.ResponseWriter, r *http.Request, client *http.Client, host, 
 		return
 	}
 	defer resp.Body.Close()
+	body := resp.Body
+	if repro {
+		log.Printf("[egress-proxy] model leg: %s %s -> %d %s", r.Method, path, resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+	if repro && strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
+		body = newReproScanBody(resp.Body)
+	}
 	for k, vs := range resp.Header {
 		for _, v := range vs {
 			w.Header().Add(k, v)
 		}
 	}
 	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, resp.Body)
+	// Flush per read so SSE deltas reach the plugin as they arrive instead
+	// of buffering into one burst at stream end.
+	if f, ok := w.(http.Flusher); ok {
+		buf := make([]byte, 32<<10)
+		for {
+			n, rerr := body.Read(buf)
+			if n > 0 {
+				w.Write(buf[:n])
+				f.Flush()
+			}
+			if rerr != nil {
+				return
+			}
+		}
+	}
+	io.Copy(w, body)
 }
 
 func main() {
@@ -134,7 +163,7 @@ func main() {
 			http.Error(w, `{"error":"egress-proxy: HARNESS_MODEL_HOST not configured"}`, http.StatusNotImplemented)
 			return
 		}
-		forward(w, r, client, cfg.modelHost, strings.TrimPrefix(r.URL.Path, "/model"))
+		forward(w, r, client, cfg.modelHost, strings.TrimPrefix(r.URL.Path, "/model"), true)
 	})
 	mux.HandleFunc("/tool/", func(w http.ResponseWriter, r *http.Request) {
 		rest := strings.TrimPrefix(r.URL.Path, "/tool/")
@@ -144,7 +173,7 @@ func main() {
 			http.Error(w, fmt.Sprintf(`{"error":"egress-proxy: unknown tool %q"}`, name), http.StatusNotFound)
 			return
 		}
-		forward(w, r, client, host, "/"+path)
+		forward(w, r, client, host, "/"+path, false)
 	})
 	// Anything else is a routing bug in the caller, never a passthrough.
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
