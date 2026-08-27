@@ -32,6 +32,14 @@ RUN corepack enable \
  && rm -rf /dsh/.git
 WORKDIR /dsh
 RUN pnpm install --frozen-lockfile
+# Build the frontend dist (dsh-web-app refuses to load without it) and
+# materialize the web profile so its plugin node_modules are baked into the
+# image — an enclave has no egress for a boot-time install, and the profile
+# is deterministic from the pin, so it belongs in the measured identity.
+ENV DSH_HOME=/dsh-home
+RUN pnpm run build \
+ && (pnpm dsh --profile web --dump-default-config >/dev/null 2>&1 || true) \
+ && test -d /dsh-home/profiles/web/node_modules
 
 # ---- runtime --------------------------------------------------------------
 FROM node:22-bookworm-slim
@@ -41,12 +49,14 @@ RUN corepack enable && corepack prepare pnpm@11.7.0 --activate \
  && apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl && rm -rf /var/lib/apt/lists/*
 COPY --from=dsh-builder /dsh /dsh
+COPY --from=dsh-builder /dsh-home /dsh-home
 COPY --from=proxy-builder /egress-proxy /usr/local/bin/egress-proxy
 COPY app/profile.cordis.yml /app/profile.cordis.yml
 COPY app/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
-# dsh home (sessions, settings, profiles) lives on the encrypted app volume
-# when the platform mounts one; the entrypoint points DSH_HOME there.
-ENV DSH_HOME=/data/dsh
+# The measured web profile (plugins + frontend) is baked at /dsh-home. Only
+# sessions/settings persist, on the encrypted volume — the overlay points
+# session persistence at /data (see profile.cordis.yml).
+ENV DSH_HOME=/dsh-home
 WORKDIR /dsh
 ENTRYPOINT ["/app/entrypoint.sh"]
