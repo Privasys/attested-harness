@@ -36,9 +36,13 @@ RUN pnpm install --frozen-lockfile
 # image — an enclave has no egress for a boot-time install, and the profile
 # is deterministic from the pin, so it belongs in the measured identity.
 ENV DSH_HOME=/dsh-home
+# Build the frontend, then load the web profile once so dsh's
+# healProfilesModuleFallback links profiles/node_modules to the CLI's
+# workspace packages (no network — plain symlinks). Both /dsh and /dsh-home
+# are baked into the runtime image, so the links stay valid there.
 RUN pnpm run build \
- && (pnpm dsh --profile web --dump-default-config >/dev/null 2>&1 || true) \
- && test -d /dsh-home/profiles/web/node_modules \
+ && (pnpm dsh --profile web --dump-config >/dev/null 2>&1 || true) \
+ && test -e /dsh-home/profiles/node_modules/@deepseek-ai/dsh-web-app \
  && rm -rf /dsh/.git
 
 # ---- runtime --------------------------------------------------------------
