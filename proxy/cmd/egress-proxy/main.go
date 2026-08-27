@@ -245,9 +245,15 @@ func serveIngress(listen, upstream string) {
 		http.Error(w, `{"status":"starting","component":"harness"}`, http.StatusServiceUnavailable)
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+	// The platform container health check probes /health (mgmt
+	// versions.go: http://localhost:$PORT/health) every 5s. Answer it here
+	// instantly so the container stays alive while dsh boots behind the
+	// proxy; /healthz is the same for anything using the conventional name.
+	health := func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprintln(w, `{"status":"ok","component":"harness-ingress"}`)
-	})
+	}
+	mux.HandleFunc("GET /health", health)
+	mux.HandleFunc("GET /healthz", health)
 	mux.Handle("/", rp)
 	log.Printf("[ingress] listening on %s -> %s", listen, upstream)
 	if err := http.ListenAndServe(listen, mux); err != nil {
