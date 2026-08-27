@@ -1,26 +1,31 @@
 #!/bin/bash
 set -euo pipefail
 
-# Attested Harness entrypoint: the egress proxy (loopback; ALL attested
-# egress) plus the dsh web app (bound to the CONTAINER IP: the enclave
-# ingress proxies to it — dsh refuses 0.0.0.0 by design, and loopback would
-# be unreachable; the platform injects PORT).
+# Attested Harness entrypoint. The Go proxy owns BOTH network edges:
+#   - egress on loopback :9411  (dsh plugins -> attested peers: CAI, tools)
+#   - ingress on $PORT          (platform -> dsh web)
+# Fronting $PORT lets the platform health check pass from second one while
+# dsh (heavy, ~40s boot) comes up on an internal loopback port behind it —
+# the confidential-ai pattern (Go front on $PORT, backend behind).
 #
 # Env (platform-injected): PORT, PRIVASYS_MANAGER_URL, PRIVASYS_CONTAINER_NAME,
 # PRIVASYS_CONTAINER_TOKEN, PRIVASYS_IMAGE_DIGEST.
-# Env (app config): HARNESS_MODEL_HOST, HARNESS_TOOL_HOSTS,
-# HARNESS_PUBLIC_HOST (the app hostname for the browser-trust fence),
-# PRIVASYS_BEARER (dev-only model auth until the sealed-ingress identity
-# lands in runtime-privasys).
+# Env (image-baked topology): HARNESS_MODEL_HOST, HARNESS_TOOL_HOSTS.
+# Env (optional): HARNESS_PUBLIC_HOST (browser-trust fence authority),
+# PRIVASYS_BEARER (dev-only model auth; on-platform uses the attested cert).
 
 if [[ -z "${PORT:-}" ]]; then
   echo "[harness] ERROR: PORT is required" >&2
   exit 1
 fi
 
-mkdir -p "${DSH_HOME:-/data/dsh}"
+mkdir -p "${DSH_HOME:-/dsh-home}"
 
-EGRESS_PROXY_LISTEN=127.0.0.1:9411 /usr/local/bin/egress-proxy &
+DSH_PORT=3080
+EGRESS_PROXY_LISTEN=127.0.0.1:9411 \
+INGRESS_LISTEN="0.0.0.0:${PORT}" \
+DSH_UPSTREAM="http://127.0.0.1:${DSH_PORT}" \
+  /usr/local/bin/egress-proxy &
 PROXY_PID=$!
 for i in $(seq 1 50); do
   curl -sf --max-time 2 http://127.0.0.1:9411/healthz >/dev/null 2>&1 && break
@@ -37,9 +42,9 @@ if [[ -n "${HARNESS_PUBLIC_HOST:-}" ]]; then
   TRUST=(--trusted-host "${HARNESS_PUBLIC_HOST}")
 fi
 
-# host/port are set in the profile overlay's webserver row (0.0.0.0:$PORT),
-# not on the command line — the CLI --host guard rejects 0.0.0.0.
+# dsh binds the internal loopback port (host/port set in the overlay's
+# webserver row to 127.0.0.1:$DSH_PORT); the proxy fronts $PORT.
 # `--profile web --patch` (not the `web` alias, which rejects parent flags).
-echo "[harness] dsh web on 0.0.0.0:${PORT} (proxy pid ${PROXY_PID}, trusted-host ${HARNESS_PUBLIC_HOST:-none})"
+echo "[harness] dsh web on 127.0.0.1:${DSH_PORT}, proxy fronts 0.0.0.0:${PORT} (pid ${PROXY_PID}, trusted-host ${HARNESS_PUBLIC_HOST:-none})"
 exec pnpm dsh --profile web --patch /app/profile.cordis.yml \
   -- --no-open "${TRUST[@]}"

@@ -35,6 +35,8 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/http/httputil"
+	neturl "net/url"
 	"os"
 	"strings"
 	"time"
@@ -59,14 +61,22 @@ type config struct {
 	// dropped. Off platform (dev) the bearer is the only credential and is
 	// forwarded unchanged.
 	onPlatform bool
+	// ingressListen ($PORT via INGRESS_LISTEN) is the platform-facing port
+	// the Go proxy fronts so health passes instantly while dsh boots;
+	// dshUpstream is the loopback dsh web server it reverse-proxies to. Both
+	// empty off platform (dev drives dsh directly).
+	ingressListen string
+	dshUpstream   string
 }
 
 func loadConfig() config {
 	c := config{
-		listenAddr: envOr("EGRESS_PROXY_LISTEN", "127.0.0.1:9411"),
-		modelHost:  os.Getenv("HARNESS_MODEL_HOST"),
-		toolHosts:  map[string]string{},
-		onPlatform: os.Getenv("PRIVASYS_MANAGER_URL") != "",
+		listenAddr:    envOr("EGRESS_PROXY_LISTEN", "127.0.0.1:9411"),
+		modelHost:     os.Getenv("HARNESS_MODEL_HOST"),
+		toolHosts:     map[string]string{},
+		onPlatform:    os.Getenv("PRIVASYS_MANAGER_URL") != "",
+		ingressListen: os.Getenv("INGRESS_LISTEN"),
+		dshUpstream:   os.Getenv("DSH_UPSTREAM"),
 	}
 	for _, kv := range strings.Split(os.Getenv("HARNESS_TOOL_HOSTS"), ",") {
 		if name, host, ok := strings.Cut(strings.TrimSpace(kv), "="); ok && name != "" && host != "" {
@@ -203,7 +213,44 @@ func main() {
 
 	log.Printf("[egress-proxy] listening on %s (model=%s tools=%d on_platform=%v deps_enabled=%v)",
 		cfg.listenAddr, cfg.modelHost, len(cfg.toolHosts), cfg.onPlatform, deps.Enabled())
+
+	// Ingress front (INGRESS_LISTEN, the platform-allocated $PORT): the Go
+	// proxy owns $PORT from second one so the platform health check passes
+	// immediately while dsh (heavy, ~40s boot) comes up behind it — the same
+	// pattern confidential-ai uses (Go front on $PORT, 503 until the backend
+	// is ready). /healthz answers instantly; everything else reverse-proxies
+	// to dsh on the loopback upstream, 503 until dsh is listening. Putting
+	// ingress here too means the measured Go layer owns every network edge.
+	if cfg.ingressListen != "" && cfg.dshUpstream != "" {
+		go serveIngress(cfg.ingressListen, cfg.dshUpstream)
+	}
+
 	if err := http.ListenAndServe(cfg.listenAddr, mux); err != nil {
 		log.Fatalf("[egress-proxy] listen: %v", err)
+	}
+}
+
+// serveIngress fronts the platform port: instant health, reverse-proxy to
+// dsh once it is up.
+func serveIngress(listen, upstream string) {
+	target, err := neturl.Parse(upstream)
+	if err != nil {
+		log.Fatalf("[ingress] bad DSH_UPSTREAM %q: %v", upstream, err)
+	}
+	rp := httputil.NewSingleHostReverseProxy(target)
+	rp.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
+		// dsh not yet listening (still booting) — 503, so the platform's
+		// health check on / can distinguish "starting" from "dead" while the
+		// dedicated /healthz stays 200 to keep the container alive.
+		http.Error(w, `{"status":"starting","component":"harness"}`, http.StatusServiceUnavailable)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprintln(w, `{"status":"ok","component":"harness-ingress"}`)
+	})
+	mux.Handle("/", rp)
+	log.Printf("[ingress] listening on %s -> %s", listen, upstream)
+	if err := http.ListenAndServe(listen, mux); err != nil {
+		log.Fatalf("[ingress] listen: %v", err)
 	}
 }
