@@ -52,6 +52,13 @@ type config struct {
 	// ("drive=privasys-drive.apps.privasys.org,web_search=...");
 	// WS2 replaces this with the fleet tool-spec.
 	toolHosts map[string]string
+	// onPlatform is true when the enclave manager is reachable
+	// (PRIVASYS_MANAGER_URL set): the proxy then has an attested client
+	// identity and dials peers with it, so CAI authenticates the harness as
+	// an attested APP (X-Privasys-Peer-*) and the dsh-supplied bearer is
+	// dropped. Off platform (dev) the bearer is the only credential and is
+	// forwarded unchanged.
+	onPlatform bool
 }
 
 func loadConfig() config {
@@ -59,6 +66,7 @@ func loadConfig() config {
 		listenAddr: envOr("EGRESS_PROXY_LISTEN", "127.0.0.1:9411"),
 		modelHost:  os.Getenv("HARNESS_MODEL_HOST"),
 		toolHosts:  map[string]string{},
+		onPlatform: os.Getenv("PRIVASYS_MANAGER_URL") != "",
 	}
 	for _, kv := range strings.Split(os.Getenv("HARNESS_TOOL_HOSTS"), ",") {
 		if name, host, ok := strings.Cut(strings.TrimSpace(kv), "="); ok && name != "" && host != "" {
@@ -163,6 +171,12 @@ func main() {
 			http.Error(w, `{"error":"egress-proxy: HARNESS_MODEL_HOST not configured"}`, http.StatusNotImplemented)
 			return
 		}
+		// On-platform: drop dsh's Authorization bearer so CAI authenticates
+		// the harness as an attested app (mutual RA-TLS peer identity), not a
+		// token. Off platform the bearer is the only credential — keep it.
+		if cfg.onPlatform {
+			r.Header.Del("Authorization")
+		}
 		forward(w, r, client, cfg.modelHost, strings.TrimPrefix(r.URL.Path, "/model"), true)
 	})
 	mux.HandleFunc("/tool/", func(w http.ResponseWriter, r *http.Request) {
@@ -187,8 +201,8 @@ func main() {
 		http.Error(w, `{"error":"egress-proxy: unrouted path; only /model/* and /tool/{name}/* egress"}`, http.StatusNotFound)
 	})
 
-	log.Printf("[egress-proxy] listening on %s (model=%s tools=%d deps_enabled=%v)",
-		cfg.listenAddr, cfg.modelHost, len(cfg.toolHosts), deps.Enabled())
+	log.Printf("[egress-proxy] listening on %s (model=%s tools=%d on_platform=%v deps_enabled=%v)",
+		cfg.listenAddr, cfg.modelHost, len(cfg.toolHosts), cfg.onPlatform, deps.Enabled())
 	if err := http.ListenAndServe(cfg.listenAddr, mux); err != nil {
 		log.Fatalf("[egress-proxy] listen: %v", err)
 	}
