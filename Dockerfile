@@ -28,8 +28,7 @@ FROM node:22-bookworm AS dsh-builder
 ARG DSH_PIN=b150a551b8d465e31e418e1b2eaf5e79bbb7d28e
 RUN corepack enable \
  && git clone https://github.com/deepseek-ai/deepseek-harness /dsh \
- && git -C /dsh checkout "${DSH_PIN}" \
- && rm -rf /dsh/.git
+ && git -C /dsh checkout "${DSH_PIN}"
 WORKDIR /dsh
 RUN pnpm install --frozen-lockfile
 # Build the frontend dist (dsh-web-app refuses to load without it) and
@@ -39,7 +38,8 @@ RUN pnpm install --frozen-lockfile
 ENV DSH_HOME=/dsh-home
 RUN pnpm run build \
  && (pnpm dsh --profile web --dump-default-config >/dev/null 2>&1 || true) \
- && test -d /dsh-home/profiles/web/node_modules
+ && test -d /dsh-home/profiles/web/node_modules \
+ && rm -rf /dsh/.git
 
 # ---- runtime --------------------------------------------------------------
 FROM node:22-bookworm-slim
