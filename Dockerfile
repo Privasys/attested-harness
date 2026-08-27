@@ -14,8 +14,8 @@ ARG RA_TLS_CLIENTS_REF=312969f1949d4bdf8048a853f1ab9cfc06622426
 RUN curl -sL "https://github.com/Privasys/go/releases/download/${GO_RATLS_VERSION}/go-ratls-${GO_RATLS_VERSION}-linux-amd64.tar.gz" \
       -o /tmp/go-ratls.tar.gz \
  && tar -C /usr/local -xzf /tmp/go-ratls.tar.gz && rm /tmp/go-ratls.tar.gz \
- && git clone https://github.com/Privasys/ra-tls-clients /build/ra-tls-clients \
- && git -C /build/ra-tls-clients checkout "${RA_TLS_CLIENTS_REF}"
+ && git clone https://github.com/Privasys/ra-tls-clients /build/attested-harness/ra-tls-clients \
+ && git -C /build/attested-harness/ra-tls-clients checkout "${RA_TLS_CLIENTS_REF}"
 ENV GOROOT=/usr/local/go-ratls
 ENV PATH=/usr/local/go-ratls/bin:${PATH}
 COPY proxy /build/attested-harness/proxy
