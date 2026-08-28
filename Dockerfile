@@ -88,5 +88,8 @@ ENV HARNESS_TOOL_HOSTS=web_search=web-search-brave.apps.privasys.org,web_reader=
 # are served unsealed. enclave-os requires tdx runtime with the static-unsealed
 # exemption (manager.go isStaticUnsealedPath).
 LABEL org.privasys.static-unsealed-prefixes="/,/assets/,/privasys/,/plugins/,/favicon.svg,/manifest.webmanifest"
+# Link the GHCR package to this repo so its Actions inherit write access
+# (avoids a personal access token — the package is published by CI).
+LABEL org.opencontainers.image.source="https://github.com/Privasys/attested-harness"
 WORKDIR /dsh
 ENTRYPOINT ["/app/entrypoint.sh"]
