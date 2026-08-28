@@ -31,6 +31,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -222,7 +223,7 @@ func main() {
 	// to dsh on the loopback upstream, 503 until dsh is listening. Putting
 	// ingress here too means the measured Go layer owns every network edge.
 	if cfg.ingressListen != "" && cfg.dshUpstream != "" {
-		go serveIngress(cfg.ingressListen, cfg.dshUpstream)
+		go serveIngress(cfg, deps)
 	}
 
 	if err := http.ListenAndServe(cfg.listenAddr, mux); err != nil {
@@ -230,14 +231,33 @@ func main() {
 	}
 }
 
-// serveIngress fronts the platform port: instant health, reverse-proxy to
-// dsh once it is up.
-func serveIngress(listen, upstream string) {
+// serveIngress fronts the platform port: instant health, the browser
+// attestation summary, and a reverse-proxy to dsh once it is up.
+func serveIngress(cfg config, deps *attested.DepSet) {
+	listen, upstream := cfg.ingressListen, cfg.dshUpstream
 	target, err := neturl.Parse(upstream)
 	if err != nil {
 		log.Fatalf("[ingress] bad DSH_UPSTREAM %q: %v", upstream, err)
 	}
 	rp := httputil.NewSingleHostReverseProxy(target)
+	// dsh guards /api with a DNS-rebinding fence (api-request-trust.ts): the
+	// Host header must be loopback or a --trusted-host, AND any browser Origin
+	// must equal that Host authority. Over the sealed relay the browser's
+	// Origin is the public app host, but the Host the manager forwards on the
+	// loopback leg is nondeterministic. Pin it here — the measured ingress is
+	// the trust boundary — so dsh always sees Host == public host (which the
+	// entrypoint also passes as --trusted-host), matching the browser Origin.
+	// Flush every write straight through: the /api/events.* SSE downlinks must
+	// reach the sealing manager frame-by-frame, not buffered into a burst.
+	rp.FlushInterval = -1
+	publicHost := os.Getenv("HARNESS_PUBLIC_HOST")
+	baseDirector := rp.Director
+	rp.Director = func(req *http.Request) {
+		baseDirector(req)
+		if publicHost != "" {
+			req.Host = publicHost
+		}
+	}
 	rp.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
 		// dsh not yet listening (still booting) — 503, so the platform's
 		// health check on / can distinguish "starting" from "dead" while the
@@ -254,6 +274,26 @@ func serveIngress(listen, upstream string) {
 	}
 	mux.HandleFunc("GET /health", health)
 	mux.HandleFunc("GET /healthz", health)
+	// Browser attestation summary (reached over the sealed session by the
+	// Privasys shell): the harness's own identity plus the live attested
+	// dependency set the agent loop is fenced to. Read-only, no secrets.
+	mux.HandleFunc("GET /privasys/attestation", func(w http.ResponseWriter, _ *http.Request) {
+		resp := map[string]any{
+			"app": map[string]any{
+				"public_host":  os.Getenv("HARNESS_PUBLIC_HOST"),
+				"tee":          "Intel TDX",
+				"image_digest": os.Getenv("PRIVASYS_IMAGE_DIGEST"),
+				"app_id":       os.Getenv("HARNESS_APP_ID"),
+			},
+			"deps_enabled":    deps.Enabled(),
+			"dependency_fold": deps.Fold(),
+			"dependencies":    deps.Pinned(),
+			"model_host":      cfg.modelHost,
+			"tool_hosts":      cfg.toolHosts,
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	})
 	mux.Handle("/", rp)
 	log.Printf("[ingress] listening on %s -> %s", listen, upstream)
 	if err := http.ListenAndServe(listen, mux); err != nil {

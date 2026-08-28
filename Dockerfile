@@ -31,6 +31,14 @@ RUN corepack enable \
  && git -C /dsh checkout "${DSH_PIN}"
 WORKDIR /dsh
 RUN pnpm install --frozen-lockfile
+# Apply the Privasys web overlay (D8 extend-don't-fork patch queue): the sealed
+# transport carrier (privasys-api-client.ts), the gated boot (apps/web main.ts),
+# the auth + attestation shell and its assets, and the removal of the WebSocket
+# 426 fence so the event downlinks ride SSE. apply-overlay.mjs asserts every
+# anchor and FAILS the build if upstream moved one — the signal to rebase, never
+# a silent skip. No package.json is touched, so the frozen lockfile still holds.
+COPY web /build/web
+RUN node /build/web/apply-overlay.mjs /dsh
 # Build the frontend dist (dsh-web-app refuses to load without it) and
 # materialize the web profile so its plugin node_modules are baked into the
 # image — an enclave has no egress for a boot-time install, and the profile
@@ -71,5 +79,14 @@ ENV DSH_HOME=/dsh-home
 # attested client cert, not a bearer (see the proxy's onPlatform path).
 ENV HARNESS_MODEL_HOST=confidential-ai.apps.privasys.org
 ENV HARNESS_TOOL_HOSTS=web_search=web-search-brave.apps.privasys.org,web_reader=web-browser-lightpanda.apps.privasys.org,drive=privasys-drive.apps.privasys.org
+# Public browser-UI shell: these prefixes are the forked dsh SPA + Privasys
+# auth/attestation shell (HTML/JS/CSS — public measured code, no user data).
+# The enclave session-relay serves them in the CLEAR on the gateway-terminated
+# leg so the page can load before a sealed session exists; the data plane
+# (/api, /privasys/attestation over sealed) stays sealed. This label is
+# measured (it rides the image config), so a verifier sees exactly which paths
+# are served unsealed. enclave-os requires tdx runtime with the static-unsealed
+# exemption (manager.go isStaticUnsealedPath).
+LABEL org.privasys.static-unsealed-prefixes="/,/assets/,/privasys/,/plugins/,/favicon.svg,/manifest.webmanifest"
 WORKDIR /dsh
 ENTRYPOINT ["/app/entrypoint.sh"]

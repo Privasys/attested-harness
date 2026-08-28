@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="stylesheet" href="/privasys/privasys-shell.css" />
+    <title>Attested Harness</title>
+    <!--
+      Privasys frame-client SDK (window.Privasys.AuthFrame). Classic script so
+      the global is present before the shell module runs. Deploy-time config
+      overrides can be injected just below via window.__PRIVASYS_CFG__.
+    -->
+    <script src="/privasys/privasys-auth-client.iife.js"></script>
+  </head>
+  <body>
+    <!-- dsh mounts its UI here once the sealed session is live. -->
+    <div id="root"></div>
+    <!-- Privasys auth gate + attestation chrome render here, over the top. -->
+    <div id="privasys-shell"></div>
+    <!-- dsh entry: installs window.__PRIVASYS_BOOT__ but does NOT auto-run. -->
+    <script type="module" src="/src/main.ts"></script>
+    <!-- Privasys shell: runs the ceremony, then boots dsh over sealed transport. -->
+    <script type="module" src="/privasys/privasys-shell.js"></script>
+  </body>
+</html>

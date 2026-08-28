@@ -1,6 +1,7 @@
 package attested
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -66,6 +67,53 @@ func (d *DepSet) Set() rc.DependencySet {
 	defer d.mu.RUnlock()
 	out := rc.DependencySet{Entries: make([]rc.DependencyEntry, len(d.set.Entries))}
 	copy(out.Entries, d.set.Entries)
+	return out
+}
+
+// PinnedMeasurement is one attested measurement of a pinned peer, flattened
+// for the browser attestation panel (TDX MRTD or SGX MRENCLAVE).
+type PinnedMeasurement struct {
+	MRTD      string `json:"mrtd,omitempty"`
+	MRENCLAVE string `json:"mrenclave,omitempty"`
+}
+
+// PinnedPeer is one entry of the attested dependency set as shown to the user:
+// the app id, its pinned code hash (OID 3.2), and its measurements. The agent
+// loop dials each of these over mutual RA-TLS and refuses any peer that does
+// not match (fail-closed).
+type PinnedPeer struct {
+	AppID        string              `json:"app_id"`
+	CodeHash     string              `json:"code_hash,omitempty"`
+	Measurements []PinnedMeasurement `json:"measurements,omitempty"`
+}
+
+// Pinned returns the current dependency set as a browser-facing summary. Empty
+// when no set is loaded (off platform, or before the first refresh).
+func (d *DepSet) Pinned() []PinnedPeer {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	out := make([]PinnedPeer, 0, len(d.set.Entries))
+	for _, e := range d.set.Entries {
+		p := PinnedPeer{AppID: e.AppID}
+		for _, o := range e.RequiredOids {
+			if o.OID == rc.OidWorkloadCodeHash {
+				p.CodeHash = base64.StdEncoding.EncodeToString(o.ExpectedValue)
+			}
+		}
+		for _, m := range e.Measurements {
+			pm := PinnedMeasurement{}
+			if m.TDX != nil {
+				pm.MRTD = m.TDX.MRTD
+			}
+			if m.SGX != "" {
+				pm.MRENCLAVE = m.SGX
+			}
+			if pm.MRTD != "" || pm.MRENCLAVE != "" {
+				p.Measurements = append(p.Measurements, pm)
+			}
+		}
+		out = append(out, p)
+	}
 	return out
 }
 

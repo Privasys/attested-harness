@@ -1,0 +1,393 @@
+// Attested Harness — browser auth + attestation shell.
+//
+// This is the Privasys fork layer over the stock dsh web UI. It runs as a
+// SEPARATE bundle from dsh (its own DOM roots, no shared framework) and owns
+// three things the stock UI cannot do on the confidential platform:
+//
+//   1. Sign-in gate. The enclave gateway enforces sealed transport
+//      (X-Privasys-Edge: terminate -> manager requireSealed), so a plain
+//      browser load is 403'd "sealed-transport-required". We gate the whole
+//      app behind a Privasys wallet/passkey/social ceremony (@privasys/auth
+//      AuthFrame) that also establishes a sealed CBOR-AES-GCM session against
+//      the harness enclave — the same transport chat.privasys.org uses.
+//
+//   2. Sealed transport hand-off. On a live sealed session we publish it to
+//      dsh via `window.__PRIVASYS_SEALED__` and boot dsh through
+//      `window.__PRIVASYS_BOOT__` (installed by the patched apps/web/main.ts).
+//      dsh's connection plugin then routes its whole API — unary RPC + the
+//      SSE event downlinks — through the sealed session instead of plain
+//      fetch + WebSockets (which cannot traverse the sealed relay).
+//
+//   3. Attestation panel. A shield in the top-right opens a drawer that shows
+//      the live evidence: the enclave your wallet attested at sign-in, the
+//      harness measurement, and the attested dependency set (Confidential AI +
+//      each tool) the agent loop is pinned to. "Trust you can verify."
+//
+// The SDK's frame-client is loaded first as a classic <script>
+// (vendor/privasys-auth-client.iife.js -> window.Privasys); this module uses
+// window.Privasys.AuthFrame. No bundler, no npm install in the enclave image.
+
+/** @typedef {import('@privasys/auth').SealedSession} SealedSession */
+
+// --- configuration ---------------------------------------------------------
+// Deploy-time overridable via a `window.__PRIVASYS_CFG__ = {...}` <script>
+// injected into index.html (see the Dockerfile / entrypoint). Defaults target
+// the dev control plane + the apps-test enclave gateway the harness runs on.
+const CFG = Object.assign(
+    {
+        // Management-service API base (session-relay metadata, attribute billing).
+        apiBase: 'https://api-test.privasys.org',
+        // Hosted auth iframe origin (privasys.id OIDC PKCE + wallet broker).
+        authOrigin: 'https://privasys.id',
+        // OIDC relying-party id (the IdP), NOT the app.
+        rpId: 'privasys.id',
+        // Shared platform OIDC client.
+        clientId: 'privasys-platform',
+        // The app as registered on the platform (UUID is unambiguous).
+        appName: '590ebdc3-1b63-401f-bbb8-22d5f3886c5e',
+        // The enclave host the sealed session is attested against.
+        appHost: 'attested-harness.apps-test.privasys.org',
+        // Broker relay for the wallet QR / push channel.
+        brokerUrl: 'wss://relay.privasys.org/relay'
+    },
+    /** @type {any} */ (window).__PRIVASYS_CFG__ || {}
+);
+
+const AuthFrame = /** @type {any} */ (window).Privasys?.AuthFrame;
+
+// --- DOM scaffolding -------------------------------------------------------
+const shellRoot = document.getElementById('privasys-shell');
+if (!shellRoot) throw new Error('privasys-shell: missing #privasys-shell mount');
+
+function el(tag, attrs, ...children) {
+    const node = document.createElement(tag);
+    if (attrs) {
+        for (const [k, v] of Object.entries(attrs)) {
+            if (k === 'class') node.className = v;
+            else if (k === 'style') node.setAttribute('style', v);
+            else if (k.startsWith('on') && typeof v === 'function') node.addEventListener(k.slice(2), v);
+            else if (v != null) node.setAttribute(k, String(v));
+        }
+    }
+    for (const c of children) {
+        if (c == null) continue;
+        node.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
+    }
+    return node;
+}
+
+// Full-viewport gate container the SDK renders its ceremony into.
+const gate = el('div', { id: 'privasys-gate', class: 'pv-gate' });
+// Persistent top-right chrome (attestation shield) shown once signed in.
+const chrome = el('div', { id: 'privasys-chrome', class: 'pv-chrome pv-hidden' });
+shellRoot.appendChild(gate);
+shellRoot.appendChild(chrome);
+
+function setGate(...children) {
+    gate.replaceChildren(...children);
+    gate.classList.remove('pv-hidden');
+}
+function hideGate() {
+    gate.classList.add('pv-hidden');
+    gate.replaceChildren();
+}
+
+// --- sign-in flow ----------------------------------------------------------
+let sealed = /** @type {SealedSession | null} */ (null);
+
+async function run() {
+    if (!AuthFrame) {
+        setGate(errorCard(
+            'Auth SDK failed to load',
+            'The Privasys authentication script did not initialise. Reload the page; if it persists the shell asset may be missing from this build.'
+        ));
+        return;
+    }
+
+    setGate(spinnerCard('Establishing a secure session…',
+        'Verifying the enclave and restoring your session.'));
+
+    const frame = new AuthFrame({
+        apiBase: CFG.apiBase,
+        authOrigin: CFG.authOrigin,
+        rpId: CFG.rpId,
+        clientId: CFG.clientId,
+        appName: CFG.appName,
+        brokerUrl: CFG.brokerUrl,
+        // Minimal identity — the harness needs a subject, not attributes.
+        scope: ['openid', 'offline_access'],
+        // Full-screen SDK gate (two-column: pitch + ceremony), rendered into
+        // our container so it fills the viewport over the empty dsh #root.
+        container: gate,
+        presentation: 'page',
+        methods: ['wallet', 'passkey', 'social'],
+        pitch: {
+            title: 'Attested Harness',
+            description:
+                'A confidential coding agent running inside a hardware enclave. ' +
+                'Sign in to open an end-to-end encrypted session — the platform ' +
+                'that terminates TLS never sees your prompts or the agent’s work.',
+            bullets: [
+                'Every model call is attested Confidential AI — no bearer keys.',
+                'Each tool the agent uses is a separately verified enclave.',
+                'Open the shield any time to check the live evidence yourself.'
+            ]
+        },
+        // Establish the sealed transport against the harness enclave.
+        sessionRelay: { appHost: CFG.appHost }
+    });
+
+    try {
+        // connect(): silent restore -> one-tap re-approval -> full ceremony,
+        // all rendered by the SDK inside `gate`. Resolves with the sealed
+        // session once the enclave is attested and the transport is live.
+        const res = await frame.connect();
+        if (!res.session) {
+            setGate(errorCard(
+                'Secure session unavailable',
+                'Sign-in completed but the enclave did not return a sealed session. ' +
+                'The harness requires end-to-end encryption, so we cannot continue ' +
+                'without it. Retry, or contact support if it persists.',
+                run
+            ));
+            return;
+        }
+        sealed = res.session;
+        onAuthenticated();
+    } catch (err) {
+        const code = /** @type {any} */ (err)?.code;
+        if (code === 'cancelled') {
+            setGate(signInPrompt(run));
+            return;
+        }
+        setGate(errorCard(
+            'Sign-in did not complete',
+            String(/** @type {any} */ (err)?.message || err || 'Unknown error') +
+            '. You can try again.',
+            run
+        ));
+    }
+}
+
+function onAuthenticated() {
+    // Hand the sealed transport to dsh and boot it. The patched apps/web
+    // main.ts reads __PRIVASYS_SEALED__ when its connection plugin applies.
+    /** @type {any} */ (window).__PRIVASYS_SEALED__ = sealed;
+    const boot = /** @type {any} */ (window).__PRIVASYS_BOOT__;
+    if (typeof boot === 'function') {
+        try {
+            boot();
+        } catch (err) {
+            console.error('[privasys-shell] dsh boot threw:', err);
+        }
+    } else {
+        console.warn('[privasys-shell] __PRIVASYS_BOOT__ not installed; dsh entry missing?');
+    }
+    hideGate();
+    mountChrome();
+}
+
+// --- attestation chrome + drawer ------------------------------------------
+function mountChrome() {
+    const shield = el(
+        'button',
+        {
+            class: 'pv-shield',
+            title: 'Attestation — verify what you are connected to',
+            'aria-label': 'Attestation',
+            onclick: openAttestation
+        },
+        shieldIcon(),
+        el('span', { class: 'pv-shield-label' }, 'Verified')
+    );
+    chrome.replaceChildren(shield);
+    chrome.classList.remove('pv-hidden');
+}
+
+let drawerOpen = false;
+async function openAttestation() {
+    if (drawerOpen) return;
+    drawerOpen = true;
+
+    const body = el('div', { class: 'pv-drawer-body' },
+        spinnerCard('Reading attestation…', 'Fetching the live evidence over the sealed session.'));
+    const drawer = el('aside', { class: 'pv-drawer', role: 'dialog', 'aria-label': 'Attestation' },
+        el('header', { class: 'pv-drawer-head' },
+            el('h2', null, 'Attestation'),
+            el('button', {
+                class: 'pv-drawer-close', 'aria-label': 'Close', onclick: () => closeDrawer()
+            }, '×')
+        ),
+        body
+    );
+    const backdrop = el('div', { class: 'pv-backdrop', onclick: () => closeDrawer() });
+    chrome.appendChild(backdrop);
+    chrome.appendChild(drawer);
+    // Let the button interactions co-exist with the full dsh surface.
+    chrome.classList.add('pv-chrome-open');
+
+    function closeDrawer() {
+        drawerOpen = false;
+        drawer.remove();
+        backdrop.remove();
+        chrome.classList.remove('pv-chrome-open');
+    }
+
+    try {
+        const data = await fetchAttestation();
+        body.replaceChildren(attestationView(data));
+    } catch (err) {
+        body.replaceChildren(errorCard(
+            'Could not read attestation',
+            String(/** @type {any} */ (err)?.message || err) +
+            '. Your session is still sealed and encrypted; this only affects the evidence panel.'
+        ));
+    }
+}
+
+// Pull the harness's own attestation summary over the sealed session (served
+// by the Go ingress at /privasys/attestation — the egress proxy's dependency
+// fold + the harness measurement + the pinned model/tool peers).
+async function fetchAttestation() {
+    if (!sealed) throw new Error('no sealed session');
+    const r = await sealed.request('GET', '/privasys/attestation');
+    if (r.status >= 400) throw new Error('attestation endpoint returned ' + r.status);
+    const text = new TextDecoder().decode(r.body);
+    return JSON.parse(text);
+}
+
+function attestationView(data) {
+    const app = data.app || {};
+    const deps = Array.isArray(data.dependencies) ? data.dependencies : [];
+    const frag = document.createDocumentFragment();
+
+    frag.appendChild(el('p', { class: 'pv-lead' },
+        'Your wallet attested this enclave end-to-end before your session opened. ' +
+        'Everything below is checkable evidence, not a claim.'));
+
+    // The enclave you are talking to.
+    frag.appendChild(section('The enclave', [
+        kv('Host', app.public_host || CFG.appHost),
+        kv('TEE', app.tee || 'Intel TDX'),
+        app.mrtd ? kv('Measurement (MRTD)', mono(app.mrtd)) : null,
+        app.code_hash ? kv('App code (OID 3.2)', mono(app.code_hash)) : null,
+        app.app_id ? kv('App id (OID 3.6)', mono(app.app_id)) : null
+    ]));
+
+    // The attested dependency set the agent loop is fenced to.
+    const depChildren = deps.length
+        ? deps.map((d) => depCard(d))
+        : [el('p', { class: 'pv-muted' },
+            'No dependency set reported. The egress proxy enforces the pinned ' +
+            'peers regardless; this panel could not read the live fold.')];
+    frag.appendChild(section(
+        'Attested dependency set',
+        [el('p', { class: 'pv-muted' },
+            'Every model and tool call the agent makes is dialled over mutual ' +
+            'RA-TLS and refused unless the peer matches one of these measurements ' +
+            '(fail-closed). Model auth is the attested client certificate — no key.'),
+        ...depChildren]
+    ));
+
+    // The human-readable routes those measurements gate.
+    const routeRows = [];
+    if (data.model_host) routeRows.push(kv('Model (Confidential AI)', data.model_host));
+    if (data.tool_hosts && typeof data.tool_hosts === 'object') {
+        for (const [name, host] of Object.entries(data.tool_hosts)) {
+            routeRows.push(kv('Tool · ' + name, String(host)));
+        }
+    }
+    if (routeRows.length) {
+        frag.appendChild(section('Routes', [
+            el('p', { class: 'pv-muted' },
+                'The hosts the agent reaches — each dialled only if it matches a ' +
+                'pinned measurement above.'),
+            el('div', { class: 'pv-kv-list' }, ...routeRows)
+        ]));
+    }
+
+    if (data.dependency_fold) {
+        frag.appendChild(section('Dependency fold', [
+            el('p', { class: 'pv-muted' },
+                'A digest of the pinned set; it changes if any pinned peer changes.'),
+            mono(data.dependency_fold)
+        ]));
+    }
+
+    return frag;
+}
+
+function depCard(d) {
+    const rows = [];
+    if (d.host) rows.push(kv('Host', d.host));
+    if (d.role) rows.push(kv('Role', d.role));
+    if (d.code_hash) rows.push(kv('Code (OID 3.2)', mono(d.code_hash)));
+    if (d.app_id) rows.push(kv('App id (OID 3.6)', mono(d.app_id)));
+    if (Array.isArray(d.measurements)) {
+        for (const m of d.measurements) {
+            if (m.mrtd) rows.push(kv('MRTD', mono(m.mrtd)));
+            if (m.mrenclave) rows.push(kv('MRENCLAVE', mono(m.mrenclave)));
+        }
+    }
+    return el('div', { class: 'pv-dep' },
+        el('div', { class: 'pv-dep-name' }, d.name || d.role || d.host || 'peer'),
+        el('div', { class: 'pv-kv-list' }, ...rows));
+}
+
+// --- small view helpers ----------------------------------------------------
+function section(title, children) {
+    return el('section', { class: 'pv-section' },
+        el('h3', null, title),
+        ...children.filter(Boolean));
+}
+function kv(k, v) {
+    return el('div', { class: 'pv-kv' },
+        el('span', { class: 'pv-kv-k' }, k),
+        typeof v === 'string' ? el('span', { class: 'pv-kv-v' }, v) : v);
+}
+function mono(s) {
+    return el('code', { class: 'pv-mono' }, String(s));
+}
+function spinnerCard(title, sub) {
+    return el('div', { class: 'pv-card pv-center' },
+        el('div', { class: 'pv-spinner' }),
+        el('div', { class: 'pv-card-title' }, title),
+        sub ? el('div', { class: 'pv-card-sub' }, sub) : null);
+}
+function errorCard(title, sub, retry) {
+    return el('div', { class: 'pv-card pv-center' },
+        el('div', { class: 'pv-card-title' }, title),
+        sub ? el('div', { class: 'pv-card-sub' }, sub) : null,
+        retry ? el('button', { class: 'pv-btn', onclick: retry }, 'Try again') : null);
+}
+function signInPrompt(retry) {
+    return el('div', { class: 'pv-card pv-center' },
+        shieldIcon(48),
+        el('div', { class: 'pv-card-title' }, 'Sign in to open the harness'),
+        el('div', { class: 'pv-card-sub' },
+            'The agent runs inside a confidential enclave. A sealed, end-to-end ' +
+            'encrypted session is required before it will load.'),
+        el('button', { class: 'pv-btn pv-btn-primary', onclick: retry }, 'Sign in'));
+}
+function shieldIcon(size) {
+    const s = size || 18;
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('width', String(s));
+    svg.setAttribute('height', String(s));
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '2');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    const p1 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    p1.setAttribute('d', 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z');
+    const p2 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    p2.setAttribute('d', 'm9 12 2 2 4-4');
+    svg.appendChild(p1);
+    svg.appendChild(p2);
+    return svg;
+}
+
+// --- go --------------------------------------------------------------------
+run();
