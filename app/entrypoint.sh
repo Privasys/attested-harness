@@ -37,6 +37,22 @@ done
 export DEEPSEEK_BASE_URL=http://127.0.0.1:9411/model/v1
 export DEEPSEEK_API_KEY="${PRIVASYS_BEARER:-unset}"
 
+# Boot smoke: one headless agent turn through the proxy to Confidential AI,
+# proving the model leg works IN THE ENCLAVE (on-platform: attested client
+# cert, no bearer). Bounded and non-fatal — logs PASS/FAIL and never blocks
+# the web server. Skipped when HARNESS_SKIP_BOOT_SMOKE is set.
+if [[ -z "${HARNESS_SKIP_BOOT_SMOKE:-}" ]]; then
+  echo "[harness] boot smoke: headless model turn -> ${HARNESS_MODEL_HOST}"
+  SMOKE=$(timeout 240 node /dsh/apps/cli/lib/bin.js --profile headless \
+    --patch /app/profile.cordis.yml \
+    "Reply with exactly: ONPLATFORM MODEL OK. Do not use any tools." 2>&1 | tail -3 || true)
+  if grep -q "ONPLATFORM MODEL OK" <<<"$SMOKE"; then
+    echo "[harness] boot smoke PASS: on-platform model leg attested + serving"
+  else
+    echo "[harness] boot smoke FAIL (non-fatal): ${SMOKE}"
+  fi
+fi
+
 TRUST=()
 if [[ -n "${HARNESS_PUBLIC_HOST:-}" ]]; then
   TRUST=(--trusted-host "${HARNESS_PUBLIC_HOST}")

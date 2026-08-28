@@ -42,7 +42,9 @@ ENV DSH_HOME=/dsh-home
 # are baked into the runtime image, so the links stay valid there.
 RUN pnpm run build \
  && (pnpm dsh --profile web --dump-config >/dev/null 2>&1 || true) \
+ && (pnpm dsh --profile headless --dump-config >/dev/null 2>&1 || true) \
  && test -e /dsh-home/profiles/node_modules/@deepseek-ai/dsh-web-app \
+ && test -e /dsh-home/profiles/node_modules/@deepseek-ai/dsh-headless \
  && rm -rf /dsh/.git
 
 # ---- runtime --------------------------------------------------------------
