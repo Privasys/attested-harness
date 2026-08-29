@@ -77,6 +77,10 @@ ENV DSH_HOME=/dsh-home
 # attestation regardless of hostname, so these belong in the measured image
 # (override at deploy for a different fleet). Model auth on-platform is the
 # attested client cert, not a bearer (see the proxy's onPlatform path).
+# The app's stable public host (name.domain), used for dsh's --trusted-host and
+# the ingress Director's Host pinning so dsh's /api DNS-rebinding fence accepts
+# the browser's sealed same-origin requests. Stable across enclaves for this app.
+ENV HARNESS_PUBLIC_HOST=attested-harness.apps-test.privasys.org
 ENV HARNESS_MODEL_HOST=confidential-ai.apps.privasys.org
 ENV HARNESS_TOOL_HOSTS=web_search=web-search-brave.apps.privasys.org,web_reader=web-browser-lightpanda.apps.privasys.org,drive=privasys-drive.apps.privasys.org
 # Public browser-UI shell: these prefixes are the forked dsh SPA + Privasys
