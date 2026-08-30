@@ -197,6 +197,10 @@ function onAuthenticated() {
     // Hand the sealed transport to dsh and boot it. The patched apps/web
     // main.ts reads __PRIVASYS_SEALED__ when its connection plugin applies.
     /** @type {any} */ (window).__PRIVASYS_SEALED__ = sealed;
+    // Install the sealed transport BEFORE boot: dsh's connection plugin reads
+    // window.__DSH_TRANSPORT__ when it applies, and its event client opens the
+    // mux WebSocket during boot — both must already be sealed-routed.
+    installSealedTransport(sealed);
     const boot = /** @type {any} */ (window).__PRIVASYS_BOOT__;
     if (typeof boot === 'function') {
         try {
@@ -210,6 +214,122 @@ function onAuthenticated() {
     hideGate();
     mountChrome();
 }
+
+// --- sealed transport injection (dsh alpha @Remote gateway) ----------------
+// The alpha removed the legacy APIProxy (AbstractApiClient) that our old
+// overlay subclassed. dsh now reads a single global seam,
+// `window.__DSH_TRANSPORT__ = { fetch }`, for all unary /api RPC, and — when no
+// in-process stream carrier is provided — opens ONE multiplexed WebSocket at
+// `/api/remote.mux` for events + every @Remote stream. We inject both here
+// from our vanilla shell, so NO dsh transport source is patched:
+//   * unary /api  -> sealed.request() over sealed HTTP (FIFO-ordered: the relay
+//     enforces a strict monotonic c2s HTTP counter, so concurrent frames must
+//     arrive in order — same fix as before, now here instead of in a TS carrier)
+//   * /api/remote.mux -> sealed.openWebSocket(); we intercept ONLY that URL and
+//     adapt the SDK's SealedWebSocket (ready/onMessage/onClose callbacks, binary
+//     sealed frames) to the native WebSocket API dsh's mux client expects
+//     (addEventListener + string message data). dsh's mux code is untouched.
+const SEALED_WS_SUBPROTOCOL = 'privasys.sealed.v1';
+const MUX_PATH = '/api/remote.mux';
+
+function installSealedTransport(session) {
+    // Unary RPC: FIFO chain so sealed HTTP frames reach the relay in counter
+    // order (out-of-order = 401 replay -> "connection lost" storm).
+    let chain = Promise.resolve();
+    const enqueue = (task) => {
+        const run = chain.then(task, task);
+        chain = run.then(noop, noop);
+        return run;
+    };
+    async function sealedFetch(input, init) {
+        const url = typeof input === 'string' ? new URL(input, location.origin) : input;
+        const path = url.pathname + url.search;
+        const method = (init && init.method ? init.method : 'GET').toUpperCase();
+        const body = init && init.body != null ? init.body : undefined;
+        const opts = init && init.signal ? { signal: init.signal } : undefined;
+        const r = await enqueue(() => session.request(method, path, body, opts));
+        return new Response(/** @type {any} */ (r.body), { status: r.status });
+    }
+    /** @type {any} */ (window).__DSH_TRANSPORT__ = { fetch: sealedFetch };
+
+    // Event downlink: route ONLY the mux socket through the sealed session.
+    // Everything else (incl. the SDK's own sealed socket, which carries the
+    // sealed subprotocol) falls through to the native WebSocket, so we never
+    // recurse into our own interception.
+    const NativeWebSocket = window.WebSocket;
+    function isMux(u) {
+        try { return new URL(u, location.origin).pathname === MUX_PATH; } catch { return false; }
+    }
+    function carriesSealedProto(protocols) {
+        if (!protocols) return false;
+        const arr = Array.isArray(protocols) ? protocols : [protocols];
+        return arr.indexOf(SEALED_WS_SUBPROTOCOL) !== -1;
+    }
+    function InterceptingWebSocket(url, protocols) {
+        if (isMux(url) && !carriesSealedProto(protocols)) {
+            return new SealedWebSocketAdapter(session, MUX_PATH);
+        }
+        return new NativeWebSocket(url, protocols);
+    }
+    InterceptingWebSocket.prototype = NativeWebSocket.prototype;
+    for (const k of ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED']) {
+        InterceptingWebSocket[k] = NativeWebSocket[k];
+    }
+    /** @type {any} */ (window).WebSocket = InterceptingWebSocket;
+}
+
+// Adapts an SDK SealedWebSocket to the browser WebSocket surface dsh's mux
+// client uses: addEventListener('open'|'message'|'close'|'error'), readyState
+// vs WebSocket.OPEN, send(string), close(code,reason). dsh requires text
+// message data, so inbound sealed bytes are UTF-8 decoded to a string.
+class SealedWebSocketAdapter extends EventTarget {
+    constructor(session, path) {
+        super();
+        this.CONNECTING = 0; this.OPEN = 1; this.CLOSING = 2; this.CLOSED = 3;
+        this.readyState = 0;
+        this.binaryType = 'blob';
+        this._decoder = new TextDecoder();
+        try {
+            this._sws = session.openWebSocket(path);
+        } catch (err) {
+            this.readyState = 3;
+            queueMicrotask(() => {
+                this.dispatchEvent(new Event('error'));
+                this.dispatchEvent(new CloseEvent('close', { code: 1006, reason: msg(err), wasClean: false }));
+            });
+            return;
+        }
+        this._sws.ready.then(
+            () => { this.readyState = 1; this.dispatchEvent(new Event('open')); },
+            (err) => {
+                this.readyState = 3;
+                this.dispatchEvent(new Event('error'));
+                this.dispatchEvent(new CloseEvent('close', { code: 1006, reason: msg(err), wasClean: false }));
+            }
+        );
+        this._unsub = this._sws.onMessage((bytes) => {
+            this.dispatchEvent(new MessageEvent('message', { data: this._decoder.decode(bytes) }));
+        });
+        this._sws.onClose((info) => {
+            this.readyState = 3;
+            this.dispatchEvent(new CloseEvent('close', {
+                code: info.code, reason: info.reason, wasClean: info.wasClean
+            }));
+        });
+        this._sws.onError(() => { this.dispatchEvent(new Event('error')); });
+    }
+    send(data) {
+        // dsh sends JSON text; the SDK seals it into a binary frame.
+        this._sws.send(data);
+    }
+    close(code, reason) {
+        this.readyState = 2;
+        try { if (this._unsub) this._unsub(); } catch { /* ignore */ }
+        try { this._sws.close(code, reason); } catch { /* ignore */ }
+    }
+}
+function msg(err) { return String((err && err.message) || err || 'error'); }
+function noop() { /* keep the FIFO chain alive regardless of task outcome */ }
 
 // --- attestation chrome + drawer ------------------------------------------
 // Interim top-right chrome: an attestation shield and a sign-out control.
