@@ -50,15 +50,20 @@ ENV DSH_HOME=/dsh-home
 # with our overridden Privasys mark/name).
 ENV DSH_CLIENT_TITLE="Attested Harness"
 ENV DSH_CLIENT_BUILD_PROFILE=official
-# Build the frontend, then load the web profile once so dsh's
-# healProfilesModuleFallback links profiles/node_modules to the CLI's
-# workspace packages (no network — plain symlinks). Both /dsh and /dsh-home
-# are baked into the runtime image, so the links stay valid there.
+# Build the frontend, then dump-config the web + headless profiles once so dsh
+# auto-scaffolds them under $DSH_HOME/profiles/<name> (initProfile writes the
+# profile package.json + heals the module fallback — no network, plain symlinks
+# into the baked /dsh installation). In the alpha the in-box bundles
+# (@deepseek-ai/dsh-web-app / dsh-headless) resolve from the installation
+# itself, NOT from profiles/node_modules, so we assert the scaffolded profile
+# manifests exist (that is what proves the profiles are baked into the measured
+# image). Both /dsh and /dsh-home are baked into the runtime, so the links stay
+# valid there.
 RUN pnpm run build \
  && (pnpm dsh --profile web --dump-config >/dev/null 2>&1 || true) \
  && (pnpm dsh --profile headless --dump-config >/dev/null 2>&1 || true) \
- && test -e /dsh-home/profiles/node_modules/@deepseek-ai/dsh-web-app \
- && test -e /dsh-home/profiles/node_modules/@deepseek-ai/dsh-headless \
+ && test -e /dsh-home/profiles/web/package.json \
+ && test -e /dsh-home/profiles/headless/package.json \
  && rm -rf /dsh/.git
 
 # ---- runtime --------------------------------------------------------------
