@@ -89,7 +89,7 @@ RUN pnpm run build \
  && ! grep -qE "web-search-deepseek|web-fetch-http|session-log-deepseek|plugin-package-inventory-deepseek|session-telemetry-otel|tool-result-pruner|dsh-llm-pi-ai" /tmp/headless-dump.yml \
  && test -e /dsh-home/profiles/node_modules/@privasys/harness-bundle/cordis.patch.yml \
  && rm -f /tmp/web-dump.yml /tmp/headless-dump.yml && rm -rf /dsh/.git /tmp/harness-bundle \
- && find /dsh \( -name 'AGENTS.md' -o -name 'CLAUDE.md' -o -name 'AGENTS.local.md' -o -name 'CLAUDE.local.md' \) -type f -delete \
+ && find /dsh \( -name 'AGENTS.md' -o -name 'CLAUDE.md' -o -name 'AGENTS.local.md' -o -name 'CLAUDE.local.md' \) \( -type f -o -type l \) -delete \
  && rm -rf /dsh/docs /dsh/website /dsh/snapshots /dsh/.agents \
       /dsh/README.md /dsh/README.zh.md /dsh/BRAND_GUIDELINES.md /dsh/BRAND_GUIDELINES.zh.md \
       /dsh/SAFETY.md /dsh/SAFETY.zh.md /dsh/CONTRIBUTING.md /dsh/CONTRIBUTING.zh.md

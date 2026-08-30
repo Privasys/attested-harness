@@ -16,11 +16,17 @@
 
 .pv-hidden { display: none !important; }
 
-/* --- full-viewport gate (SDK ceremony lives inside) --- */
+/* --- full-viewport gate (SDK ceremony overlays it) ---
+   z-index MUST stay BELOW 999998: in sealed mode the auth SDK mounts its
+   ceremony iframe on <body> at z-index 999998, positioned over this gate
+   (body-parenting preserves the iframe's in-memory ECDH keys). A higher
+   gate hid the entire branded ceremony behind our background — the root
+   cause of every "login view is not the SDK UI" report. At 999000 the
+   gate covers the app, and the SDK's surface covers the gate. */
 .pv-gate {
     position: fixed;
     inset: 0;
-    z-index: 2147483000;
+    z-index: 999000;
     background: var(--pv-bg);
     display: flex;
     align-items: center;
