@@ -119,6 +119,7 @@ func mcpShim(w http.ResponseWriter, r *http.Request, client *http.Client, toolNa
 		if len(args) == 0 {
 			args = json.RawMessage(`{}`)
 		}
+		args = applyDocumentedDefaults(toolName, p.Name, args)
 		result, status, err := callTool(r, client, host, p.Name, args)
 		if err != nil {
 			rpcError(w, req.ID, -32000, fmt.Sprintf("tool call: %v", err))
@@ -137,6 +138,49 @@ func mcpShim(w http.ResponseWriter, r *http.Request, client *http.Client, toolNa
 		}
 		rpcError(w, req.ID, -32601, "method not found: "+req.Method)
 	}
+}
+
+// documentedDefaults fills argument fields a tool DOCUMENTS as defaulting but
+// whose implementation rejects when the field is absent (schema/impl mismatch
+// on the tool side). Concretely: web-search-brave's `count` says "Pass 0 for
+// the default of 10" yet errors on a missing count — and a small model at low
+// reasoning effort omits it, costing a visible failed call per attempt.
+// Interim robustness shim; the durable fix is the tool app accepting absence
+// (queued for the next fleet-tools release — a tool rebuild rotates its
+// MRENCLAVE and cascades dependency re-pins, so it rides that window).
+var documentedDefaults = map[string]map[string]map[string]any{
+	"web_search": {
+		"search":     {"count": 0},
+		"search-raw": {"count": 0},
+	},
+}
+
+// applyDocumentedDefaults returns args with any missing documented-default
+// fields filled in; args pass through untouched when no defaults apply.
+func applyDocumentedDefaults(server, tool string, args json.RawMessage) json.RawMessage {
+	defaults := documentedDefaults[server][tool]
+	if len(defaults) == 0 {
+		return args
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(args, &parsed); err != nil || parsed == nil {
+		return args
+	}
+	changed := false
+	for field, value := range defaults {
+		if _, present := parsed[field]; !present {
+			parsed[field] = value
+			changed = true
+		}
+	}
+	if !changed {
+		return args
+	}
+	filled, err := json.Marshal(parsed)
+	if err != nil {
+		return args
+	}
+	return filled
 }
 
 func fetchCatalogue(r *http.Request, client *http.Client, host string) ([]upstreamTool, error) {
