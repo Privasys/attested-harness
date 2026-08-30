@@ -44,6 +44,12 @@ RUN node /build/web/apply-overlay.mjs /dsh
 # image — an enclave has no egress for a boot-time install, and the profile
 # is deterministic from the pin, so it belongs in the measured identity.
 ENV DSH_HOME=/dsh-home
+# Rebrand the dsh client chrome: the document/app title (read at vite build
+# time) and the brand-slot occupants (Brand.tsx overlay) carry Privasys, not
+# DeepSeek. DSH_CLIENT_BUILD_PROFILE=official keeps the brand slots filled (now
+# with our overridden Privasys mark/name).
+ENV DSH_CLIENT_TITLE="Attested Harness"
+ENV DSH_CLIENT_BUILD_PROFILE=official
 # Build the frontend, then load the web profile once so dsh's
 # healProfilesModuleFallback links profiles/node_modules to the CLI's
 # workspace packages (no network — plain symlinks). Both /dsh and /dsh-home

@@ -57,6 +57,9 @@ put('apps/web/public/privasys/privasys-shell.js', 'privasys-shell.js')
 put('apps/web/public/privasys/privasys-shell.css', 'privasys-shell.css')
 put('apps/web/public/privasys/privasys-auth-client.iife.js', 'vendor/privasys-auth-client.iife.js')
 put('apps/web/public/privasys/privasys-logo.mini.svg', 'vendor/privasys-logo.mini.svg')
+// Rebrand: Privasys mark + name in dsh's brand slots, and the Privasys favicon.
+put('packages/client/ui-brand-official/src/client/Brand.tsx', 'overlay/brand/Brand.tsx')
+put('apps/web/public/favicon.svg', 'vendor/privasys-logo.mini.svg')
 
 // --- 2a. client/index.ts: select the sealed carrier -------------------------
 edit('packages/client/connection/src/client/index.ts', [

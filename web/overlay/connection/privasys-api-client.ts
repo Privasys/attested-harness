@@ -46,6 +46,26 @@ export interface SealedHandle {
  * the SDK's parsed `status`; outer transfer headers are intentionally dropped
  * (the encrypted-vs-plaintext lengths would disagree).
  */
+// The enclave session-relay enforces a STRICT monotonic c2s counter and 401s
+// any out-of-order frame as a replay (sessionrelay.go: "Out-of-order requests
+// across parallel fetches will fail"). dsh is a highly concurrent client (two
+// long-lived event downlinks plus parallel unary RPC), so its frames would
+// arrive out of order and get rejected — a "connection lost" + re-bootstrap
+// (429) storm. We serialise every sealed frame through a FIFO chain so they
+// reach the manager in counter order. A downlink resolves on response headers
+// (its body then streams independently), so the two SSE streams do not block
+// the queue; unary calls serialise their round-trip, which is the correct
+// trade-off until the relay grows a sliding-window anti-replay.
+let sealedChain: Promise<unknown> = Promise.resolve()
+
+function enqueue<T>(task: () => Promise<T>): Promise<T> {
+  const run = sealedChain.then(task, task)
+  // Keep the chain alive regardless of individual task outcome.
+  sealedChain = run.then(noop, noop)
+  return run
+}
+function noop(): void {}
+
 export async function sealedDoFetch(
   sealed: SealedHandle,
   input: URL,
@@ -57,11 +77,14 @@ export async function sealedDoFetch(
     method === 'GET' && (input.pathname === MUX_EVENTS_PATH || input.pathname === HOST_EVENTS_PATH)
 
   if (isDownlink) {
-    const r = await sealed.stream('GET', path, undefined, forward(init))
+    // sealed.stream() resolves once the response headers are in; the body
+    // streams after, so enqueuing only the header round-trip is enough to
+    // keep the c2s frame ordered without holding the queue for the stream's life.
+    const r = await enqueue(() => sealed.stream('GET', path, undefined, forward(init)))
     return new Response(r.body, { status: r.status })
   }
 
-  const r = await sealed.request(method, path, init?.body ?? undefined, forward(init))
+  const r = await enqueue(() => sealed.request(method, path, init?.body ?? undefined, forward(init)))
   return new Response(r.body as BodyInit, { status: r.status })
 }
 
