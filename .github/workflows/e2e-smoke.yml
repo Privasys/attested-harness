@@ -1,0 +1,32 @@
+name: E2E smoke (live)
+
+# Post-deploy smoke against the LIVE harness URL. Run manually after a deploy,
+# and daily to catch drift (a broken pull, a stale measurement, a lost
+# exemption, or a branding/connection regression). It does NOT gate the build
+# (the app must be deployed to an enclave first, which is a separate step).
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'Harness URL to smoke'
+        default: 'https://attested-harness.apps-test.privasys.org'
+  schedule:
+    - cron: '17 7 * * *'
+
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - working-directory: web/e2e
+        run: npm install --no-save @playwright/test@^1.49.0
+      - working-directory: web/e2e
+        run: npx playwright install --with-deps chromium
+      - working-directory: web/e2e
+        env:
+          E2E_HARNESS_URL: ${{ github.event.inputs.url || 'https://attested-harness.apps-test.privasys.org' }}
+          CI: 'true'
+        run: npx playwright test
