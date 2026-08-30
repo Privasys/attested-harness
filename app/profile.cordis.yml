@@ -45,6 +45,21 @@
       exclusively in attested enclaves over mutually authenticated encrypted
       channels; the platform operator cannot read this conversation.
 
+# Drop dsh's DEV-oriented prompt sections: surfaceContext gates BOTH the
+# "DeepSeek Harness implementation checkout is at /dsh" harness-source section
+# and the "Web GUI at http://127.0.0.1:3080 ... pnpm run dev:web" orientation —
+# developer-workflow text that is false and off-brand in the deployed product
+# (our persona + runtime context orient the agent). A patch replaces the whole
+# config, so the other keys are restated (same !!js sources as upstream).
+- id: web-runtime
+  name: "@deepseek-ai/dsh-web-app"
+  inject: [webStartup]
+  config:
+    openBrowser: !!js ctx.webStartup.openBrowser
+    printUrl: true
+    surfaceContext: false
+    trustedHosts: !!js ctx.webStartup.trustedHosts
+
 # Clock for the agent (dsh injects NO date/time by default). dsh-time-context
 # appends a timestamp message at the ABSOLUTE TAIL of the step batch
 # (prepend:true listener) and throttles refreshes — the cache-safe injection

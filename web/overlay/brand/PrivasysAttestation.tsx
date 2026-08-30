@@ -90,6 +90,9 @@ export function PrivasysAttestationRow({ wide }: SidebarFooterActionOwnerProps) 
   const cfg = shellConfig()
   const attestUrl = cfg.attestUrl ?? ''
   const verifyQuoteUrl = cfg.verifyQuoteUrl ?? 'https://as.privasys.org/verify-quote'
+  // The management-service /attest report is ANONYMOUS — never gate it on a
+  // token (a mint failure must not blank the whole report). Only the
+  // attestation-server quote verification needs the audience token.
   const tokenThunk = () =>
     cfg.getTokenForAudience !== undefined
       ? cfg.getTokenForAudience('attestation-server')
@@ -97,7 +100,6 @@ export function PrivasysAttestationRow({ wide }: SidebarFooterActionOwnerProps) 
   const [state, actions] = useAttestation({
     attestUrl,
     verifyQuoteUrl,
-    token: tokenThunk,
     verifyQuoteToken: tokenThunk,
     autoInspect: Boolean(attestUrl),
     autoVerifyQuote: Boolean(attestUrl),

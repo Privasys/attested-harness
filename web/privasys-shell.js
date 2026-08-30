@@ -131,24 +131,21 @@ async function run() {
     }
 
     // One container; the SDK's `page` presentation fills it with the ENTIRE
-    // branded surface when a ceremony is needed. During connect()'s SILENT
-    // restore the SDK paints nothing (the session iframe is invisible), which
-    // used to leave a blank white page for several seconds — so show a
-    // connecting card (chat does the same) and drop it the moment the SDK
-    // mounts its ceremony iframe or connect() settles.
+    // branded surface when an interactive ceremony is needed. But during
+    // connect()'s silent restore AND the one-tap push re-approval (relay TTL
+    // expired -> wallet push, no browser interaction) the SDK paints nothing —
+    // a blank white page for as long as the approval takes. The SDK exposes no
+    // status events, so: keep a NON-BLOCKING connecting toast (pointer-events:
+    // none, top-centred — a real ceremony iframe underneath stays fully
+    // usable) until connect() settles, whatever the flow.
     gate.replaceChildren();
     gate.classList.remove('pv-hidden');
     const connecting = el('div', { class: 'pv-connecting' },
-        spinnerCard('Connecting…', 'Restoring your secure session.'));
+        spinnerCard('Connecting…',
+            'Restoring your secure session. If your phone shows a Privasys ' +
+            'approval request, approve it there.'));
     gate.appendChild(connecting);
-    const gateObserver = new MutationObserver(() => {
-        if (gate.querySelector('iframe')) {
-            connecting.remove();
-            gateObserver.disconnect();
-        }
-    });
-    gateObserver.observe(gate, { childList: true, subtree: true });
-    const clearConnecting = () => { gateObserver.disconnect(); connecting.remove(); };
+    const clearConnecting = () => { connecting.remove(); };
 
     frame = new AuthFrame({
         apiBase: CFG.apiBase,
@@ -157,8 +154,13 @@ async function run() {
         clientId: CFG.clientId,
         appName: CFG.appName,
         brokerUrl: CFG.brokerUrl,
-        // Minimal identity — the harness needs a subject, not attributes.
-        scope: ['openid', 'offline_access'],
+        // openid+offline for the session; email+profile because the SDK's
+        // audience-token mint (getTokenForAudience — used to verify the
+        // attestation quote signature) requests a fixed
+        // "audience:X openid email profile offline_access" scope and the IdP
+        // refuses a mint broader than the original grant ("requested scope
+        // email not present in granted scope"). Same grant chat uses.
+        scope: ['openid', 'email', 'profile', 'offline_access'],
         container: gate,
         presentation: 'page',
         // Sealed instance: the end-to-end encrypted session is established only

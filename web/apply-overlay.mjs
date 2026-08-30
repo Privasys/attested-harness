@@ -308,6 +308,10 @@ for (const rel of [
   'internal/use-copy.ts',
 ]) {
   put(`packages/client/ui-brand-official/src/client/attestation-view/${rel}`, `vendor/attestation-view/${rel}`)
+  // Second copy inside ui-trajectory: the Attestation tab renders the same
+  // full shared view, and a cross-package src import would break the strict
+  // project-reference build — a duplicated vendored copy is the smaller evil.
+  put(`packages/client/ui-trajectory/src/client/attestation-view/${rel}`, `vendor/attestation-view/${rel}`)
 }
 put('packages/client/ui-brand-official/src/client/PrivasysAttestation.tsx', 'overlay/brand/PrivasysAttestation.tsx')
 put('apps/web/public/privasys/privasys-attestation.css', 'vendor/privasys-attestation.css')

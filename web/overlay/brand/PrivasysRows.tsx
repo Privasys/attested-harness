@@ -25,6 +25,12 @@ function shell(): PrivasysShellHooks {
 // and the menu uses the system Canvas/CanvasText colors, which follow the theme.
 const STYLE_ID = 'privasys-sidebar-rows'
 const STYLE = `
+/* dsh's sidebar-foot action container lays list entries out in a ROW; with the
+   full "Secure Hardware Attestation" label the User row overflowed out of
+   sight. Stack the foot actions vertically (css-module class names keep the
+   readable "footerActions" stem, so the attribute selector is stable enough;
+   revisit if upstream renames it). */
+[class*="footerActions"] { flex-direction: column !important; align-items: stretch !important; gap: 2px; }
 .pv-row { display: flex; align-items: center; gap: 8px; width: 100%;
   padding: 7px 10px; border: none; border-radius: 8px; background: transparent;
   color: inherit; font: inherit; font-size: 13px; cursor: pointer;

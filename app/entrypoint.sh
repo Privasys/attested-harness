@@ -64,6 +64,14 @@ fi
 # boot never finishing before the health check). dsh binds the internal
 # loopback port (overlay webserver row 127.0.0.1:$DSH_PORT); the proxy fronts
 # $PORT. `--profile web --patch` (the `web` alias rejects parent flags).
+# Sessions default their workspace to the process cwd. Running from /dsh (the
+# WORKDIR) made every session a workspace INSIDE the dsh checkout — dsh's own
+# AGENTS.md got injected as workspace instructions and users worked in the
+# harness source tree. Work belongs on the ENCRYPTED VOLUME: a persistent
+# workspace directory that survives redeploys.
+mkdir -p /data/workspace
+cd /data/workspace
+
 echo "[harness] dsh web (compiled) on 127.0.0.1:${DSH_PORT}, proxy fronts 0.0.0.0:${PORT} (pid ${PROXY_PID}, trusted-host ${HARNESS_PUBLIC_HOST:-none})"
 exec node /dsh/apps/cli/lib/bin.js --profile web --patch /app/profile.cordis.yml \
   -- --no-open "${TRUST[@]}"
