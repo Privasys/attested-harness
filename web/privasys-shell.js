@@ -95,17 +95,39 @@ function hideGate() {
 // --- sign-in flow ----------------------------------------------------------
 let sealed = /** @type {SealedSession | null} */ (null);
 
+// Pitch strings for the SDK gate's left panel (page presentation). The SDK
+// styles them; we supply copy only — the header, the "Secured by Privasys ID"
+// seal, the ceremony states, and the terms footer are all the SDK's global,
+// branded UI. We render NO chrome of our own around it (mirrors
+// chat.privasys.org's SignInGate).
+const HARNESS_PITCH = {
+    title: 'A coding agent you can verify.',
+    description:
+        'The Attested Harness runs its agent and model inside hardware-protected ' +
+        'enclaves. The operator can never read your prompts or the agent’s work, ' +
+        'and you can verify it yourself by remote attestation.',
+    bullets: [
+        'Sealed browser-to-enclave transport. The gateway only sees ciphertext.',
+        'Every model call is attested Confidential AI. No bearer keys.',
+        'Each tool the agent uses is a separately verified enclave.',
+        'No passwords. Sign in with the Privasys Wallet on your phone.'
+    ]
+};
+
 async function run() {
     if (!AuthFrame) {
-        setGate(errorCard(
-            'Auth SDK failed to load',
-            'The Privasys authentication script did not initialise. Reload the page; if it persists the shell asset may be missing from this build.'
-        ));
+        showAuthFallback(
+            'The Privasys authentication script did not load. Reload the page.',
+            false
+        );
         return;
     }
 
-    setGate(spinnerCard('Establishing a secure session…',
-        'Verifying the enclave and restoring your session.'));
+    // One empty container; the SDK's `page` presentation fills it with the
+    // ENTIRE branded surface. This is the global Auth SDK UI every Privasys
+    // property uses — do not wrap it in our own chrome.
+    gate.replaceChildren();
+    gate.classList.remove('pv-hidden');
 
     const frame = new AuthFrame({
         apiBase: CFG.apiBase,
@@ -116,22 +138,16 @@ async function run() {
         brokerUrl: CFG.brokerUrl,
         // Minimal identity — the harness needs a subject, not attributes.
         scope: ['openid', 'offline_access'],
-        // Full-screen SDK gate (two-column: pitch + ceremony), rendered into
-        // our container so it fills the viewport over the empty dsh #root.
         container: gate,
         presentation: 'page',
-        methods: ['wallet', 'passkey', 'social'],
-        pitch: {
-            title: 'Attested Harness',
-            description:
-                'A confidential coding agent running inside a hardware enclave. ' +
-                'Sign in to open an end-to-end encrypted session — the platform ' +
-                'that terminates TLS never sees your prompts or the agent’s work.',
-            bullets: [
-                'Every model call is attested Confidential AI — no bearer keys.',
-                'Each tool the agent uses is a separately verified enclave.',
-                'Open the shield any time to check the live evidence yourself.'
-            ]
+        // Sealed instance: the end-to-end encrypted session is established only
+        // over the wallet-attested channel (same constraint as chat).
+        methods: ['wallet'],
+        pitch: HARNESS_PITCH,
+        // App identity for the gate header + the "Secured by Privasys ID" seal.
+        app: {
+            displayName: 'Attested Harness',
+            logoUrl: location.origin + '/privasys/privasys-logo.mini.svg'
         },
         // Establish the sealed transport against the harness enclave.
         sessionRelay: { appHost: CFG.appHost }
@@ -139,17 +155,15 @@ async function run() {
 
     try {
         // connect(): silent restore -> one-tap re-approval -> full ceremony,
-        // all rendered by the SDK inside `gate`. Resolves with the sealed
-        // session once the enclave is attested and the transport is live.
+        // all rendered by the SDK. Resolves with the sealed session once the
+        // enclave is attested and the transport is live.
         const res = await frame.connect();
         if (!res.session) {
-            setGate(errorCard(
-                'Secure session unavailable',
-                'Sign-in completed but the enclave did not return a sealed session. ' +
-                'The harness requires end-to-end encryption, so we cannot continue ' +
-                'without it. Retry, or contact support if it persists.',
-                run
-            ));
+            showAuthFallback(
+                'Signed in, but the enclave returned no sealed session. The harness ' +
+                'requires end-to-end encryption. Please try again.',
+                false
+            );
             return;
         }
         sealed = res.session;
@@ -157,16 +171,24 @@ async function run() {
     } catch (err) {
         const code = /** @type {any} */ (err)?.code;
         if (code === 'cancelled') {
-            setGate(signInPrompt(run));
+            showAuthFallback('Sign-in was closed.', true);
             return;
         }
-        setGate(errorCard(
-            'Sign-in did not complete',
-            String(/** @type {any} */ (err)?.message || err || 'Unknown error') +
-            '. You can try again.',
-            run
-        ));
+        showAuthFallback(
+            String(/** @type {any} */ (err)?.message || err || 'Sign-in failed') + '.',
+            false
+        );
     }
+}
+
+// Minimal fallback shown ONLY on error/cancel (never during the normal SDK
+// flow) — a single button that re-enters the SDK gate. Mirrors chat's
+// closed/error panel.
+function showAuthFallback(message, closed) {
+    setGate(el('div', { class: 'pv-card pv-center' },
+        el('div', { class: 'pv-card-title' }, closed ? 'Sign-in closed' : 'Sign-in problem'),
+        el('div', { class: 'pv-card-sub' }, message),
+        el('button', { class: 'pv-btn pv-btn-primary', onclick: () => void run() }, 'Sign in')));
 }
 
 function onAuthenticated() {
@@ -359,15 +381,6 @@ function errorCard(title, sub, retry) {
         el('div', { class: 'pv-card-title' }, title),
         sub ? el('div', { class: 'pv-card-sub' }, sub) : null,
         retry ? el('button', { class: 'pv-btn', onclick: retry }, 'Try again') : null);
-}
-function signInPrompt(retry) {
-    return el('div', { class: 'pv-card pv-center' },
-        shieldIcon(48),
-        el('div', { class: 'pv-card-title' }, 'Sign in to open the harness'),
-        el('div', { class: 'pv-card-sub' },
-            'The agent runs inside a confidential enclave. A sealed, end-to-end ' +
-            'encrypted session is required before it will load.'),
-        el('button', { class: 'pv-btn pv-btn-primary', onclick: retry }, 'Sign in'));
 }
 function shieldIcon(size) {
     const s = size || 18;
