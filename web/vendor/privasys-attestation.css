@@ -5686,3 +5686,31 @@
     }
   }
 }
+
+/* ── Privasys hand-authored append (survives regeneration only if re-added:
+   keep this block when re-running the Tailwind extraction) ──────────────────
+   Scoped mini-preflight for the attestation surfaces: we deliberately skip
+   Tailwind's GLOBAL preflight (it would restyle the whole dsh app), so UA
+   default button borders (black outset) leak through, and Tailwind's bare
+   `border` utility falls back to currentColor. Neutralise both, scoped. */
+.pv-att-scope button {
+  border-style: solid;
+  border-width: 0;
+  background-color: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.pv-att-scope button[class*="border"] {
+  border-width: 1px;
+  border-color: rgba(128, 128, 128, 0.35);
+  border-radius: 8px;
+}
+.pv-att-scope button[class*="border"]:hover { border-color: rgba(128, 128, 128, 0.6); }
+.pv-att-scope input {
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}

@@ -150,7 +150,8 @@ export function PrivasysAttestationRow({ wide }: SidebarFooterActionOwnerProps) 
               <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 Secure Hardware Attestation
               </span>
-              <AttestationStatusBadge status={status} reason={reason} />
+              {/* Tick only — the full "Verified" label does not fit the row. */}
+              <AttestationStatusBadge status={status} reason={reason} verifiedLabel="" />
             </span>
           )
           : null}
@@ -159,7 +160,7 @@ export function PrivasysAttestationRow({ wide }: SidebarFooterActionOwnerProps) 
         ? (
           <div className="pv-att-overlay" onClick={() => { setOpen(false) }}>
             <div
-              className="pv-att-panel"
+              className="pv-att-panel pv-att-scope"
               role="dialog"
               aria-label="Secure Hardware Attestation"
               onClick={(event) => { event.stopPropagation() }}

@@ -124,7 +124,7 @@ export function PrivasysAttestationTab({ toolWireName }: { toolWireName: string 
   const { status, reason } = attestationStatusOf(summary, Boolean(attestUrl))
 
   return (
-    <div style={{ fontSize: 13 }}>
+    <div className="pv-att-scope" style={{ fontSize: 13, minWidth: 320, padding: '4px 10px 14px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
         <strong>{known.label}</strong>
         <AttestationStatusBadge status={status} {...(reason !== undefined ? { reason } : {})} />

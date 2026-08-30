@@ -316,4 +316,128 @@ for (const rel of [
 put('packages/client/ui-brand-official/src/client/PrivasysAttestation.tsx', 'overlay/brand/PrivasysAttestation.tsx')
 put('apps/web/public/privasys/privasys-attestation.css', 'vendor/privasys-attestation.css')
 
+// --- 2g. greenfield content: no DeepSeek-authored text reaches user or model
+// (full audit in memory attested-harness-plan; consolidated change set below).
+
+// (a) The blocking "Internal Testing Notice" + official-DeepSeek API-key
+// onboarding dialogs. No config seam exists (apply() takes none); locale
+// override is impossible (duplicate register throws). Remove the two slot
+// registrations; `void` the now-unreferenced symbols so the strict build
+// (noUnusedLocals) keeps compiling.
+edit('packages/client/ui-settings-models/src/client/index.ts', [
+  [
+    'onboarding dialogs removal',
+    `  ctx.slots.inject('settings.onboarding', () => ctx.slots.register({\n` +
+      `    name: 'settings.onboarding',\n` +
+      `    id: 'welcome-notice',\n` +
+      `    order: -100,\n` +
+      `    inject: welcomeInjected,\n` +
+      `  }, WelcomeNotice))\n` +
+      `  ctx.slots.inject('settings.onboarding', () => ctx.slots.register({\n` +
+      `    name: 'settings.onboarding',\n` +
+      `    id: 'deepseek-official',\n` +
+      `    order: 0,\n` +
+      `    inject: deepSeekOnboardingInjected,\n` +
+      `  }, DeepSeekOnboardingDialog))`,
+    `  // Privasys: the DeepSeek onboarding dialogs (the blocking "Internal\n` +
+      `  // Testing Notice" and the official-API-key prompt) are not registered —\n` +
+      `  // this deployment has its own identity and its provider is preconfigured.\n` +
+      `  void welcomeInjected\n` +
+      `  void deepSeekOnboardingInjected\n` +
+      `  void WelcomeNotice\n` +
+      `  void DeepSeekOnboardingDialog`,
+  ],
+])
+
+// (b) The ?fixture demo transport: always bundled, reachable by URL query in
+// production, serving DeepSeek-authored sample content. Disable outright.
+edit('packages/client/connection/src/client/index.ts', [
+  [
+    'fixture transport removal',
+    `  const fixture = pageLocation !== undefined && new URLSearchParams(pageLocation.search).has('fixture')\n` +
+      `  const fixtureRpc = fixture ? createFixtureConnectionRpc() : undefined`,
+    `  // Privasys: the ?fixture demo transport (DeepSeek-authored sample\n` +
+      `  // content, reachable by query string) is disabled in this deployment.\n` +
+      `  void pageLocation\n` +
+      `  void createFixtureConnectionRpc\n` +
+      `  const fixtureRpc = undefined`,
+  ],
+])
+
+// (c) Model-visible sandbox-policy brand: "DSH file policy/sandbox" ->
+// neutral "harness" (these strings ride the runtime-context snapshot into
+// every prompt).
+edit('packages/sandbox/sandbox-policy/src/index.ts', [
+  [
+    'sandbox policy read-only string',
+    `      return 'Current DSH file policy: read-only. Any available operation enforced by the DSH file sandbox cannot modify files in the standing mode.`,
+    `      return 'Current harness file policy: read-only. Any available operation enforced by the harness file sandbox cannot modify files in the standing mode.`,
+  ],
+  [
+    'sandbox policy workspace-write string',
+    '      return `Current DSH file policy: workspace-write. Any available operation enforced by the DSH file sandbox may modify files under the session workspace:',
+    '      return `Current harness file policy: workspace-write. Any available operation enforced by the harness file sandbox may modify files under the session workspace:',
+  ],
+  [
+    'sandbox policy full-access string',
+    `      return 'Current DSH file policy: danger-full-access. The DSH file sandbox does not restrict file modifications by available operations.'`,
+    `      return 'Current harness file policy: danger-full-access. The harness file sandbox does not restrict file modifications by available operations.'`,
+  ],
+])
+
+// (d) The runtime-context provenance label rendered in the chat UI: a bare
+// string literal, self-consistent (isOwned compares the same const), no other
+// production matcher — rename to the neutral sibling style.
+edit('packages/core/agent-loop/src/runtime-context.ts', [
+  [
+    'runtime-context source label',
+    `const SOURCE = '@deepseek-ai/dsh-system-prompt'`,
+    `const SOURCE = 'runtime-context'`,
+  ],
+])
+
+// (e) Skill discovery: the dsh-* development skills live in the checkout's
+// .agents/skills and are found through cwd-anchored default roots. Scope
+// every preset to a directory the deployment owns (includeDefaultRoots:false
+// is the load-bearing key — customSkillDirs alone would ADD, not replace).
+const SKILL_ROW_STOCK =
+  `- id: skill-filesystem\n` +
+  `  name: '@deepseek-ai/dsh-skill-filesystem'\n` +
+  `\n` +
+  `- id: tool-skill`
+const SKILL_ROW_PRIVASYS =
+  `- id: skill-filesystem\n` +
+  `  name: '@deepseek-ai/dsh-skill-filesystem'\n` +
+  `  config:\n` +
+  `    # Privasys: skills come ONLY from the deployment-owned directory on the\n` +
+  `    # encrypted volume — never the dsh checkout's own development skills.\n` +
+  `    includeDefaultRoots: false\n` +
+  `    customSkillDirs:\n` +
+  `      - /data/skills\n` +
+  `    watch: false\n` +
+  `\n` +
+  `- id: tool-skill`
+for (const preset of ['standard', 'ptc']) {
+  edit(`packages/preset/agent-presets/presets/${preset}/agent.cordis.yml`, [
+    [`preset ${preset} skill scoping`, SKILL_ROW_STOCK, SKILL_ROW_PRIVASYS],
+  ])
+}
+edit('packages/preset/agent-presets/presets/cordis/agent.cordis.yml', [
+  [
+    'preset cordis skill scoping',
+    `- id: skill-filesystem\n` +
+      `  name: '@deepseek-ai/dsh-skill-filesystem'\n` +
+      `  config:\n` +
+      `    customSkillDirs:\n` +
+      `      - !!js "process.getBuiltinModule('node:url').fileURLToPath(new URL('skills/', baseUrl))"`,
+    `- id: skill-filesystem\n` +
+      `  name: '@deepseek-ai/dsh-skill-filesystem'\n` +
+      `  config:\n` +
+      `    includeDefaultRoots: false\n` +
+      `    customSkillDirs:\n` +
+      `      - /data/skills\n` +
+      `    watch: false`,
+  ],
+])
+
 console.log('[overlay] done')

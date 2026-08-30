@@ -70,6 +70,9 @@ fi
 # harness source tree. Work belongs on the ENCRYPTED VOLUME: a persistent
 # workspace directory that survives redeploys.
 mkdir -p /data/workspace
+# The deployment-owned skill root (presets pin skill discovery to it,
+# includeDefaultRoots:false — see app/profile notes + the preset overlay).
+mkdir -p /data/skills
 cd /data/workspace
 
 echo "[harness] dsh web (compiled) on 127.0.0.1:${DSH_PORT}, proxy fronts 0.0.0.0:${PORT} (pid ${PROXY_PID}, trusted-host ${HARNESS_PUBLIC_HOST:-none})"
