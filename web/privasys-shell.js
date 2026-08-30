@@ -94,6 +94,8 @@ function hideGate() {
 
 // --- sign-in flow ----------------------------------------------------------
 let sealed = /** @type {SealedSession | null} */ (null);
+// The live AuthFrame instance, hoisted so sign-out can clear its session.
+let frame = /** @type {any} */ (null);
 
 // Pitch strings for the SDK gate's left panel (page presentation). The SDK
 // styles them; we supply copy only — the header, the "Secured by Privasys ID"
@@ -129,7 +131,7 @@ async function run() {
     gate.replaceChildren();
     gate.classList.remove('pv-hidden');
 
-    const frame = new AuthFrame({
+    frame = new AuthFrame({
         apiBase: CFG.apiBase,
         authOrigin: CFG.authOrigin,
         rpId: CFG.rpId,
@@ -210,6 +212,11 @@ function onAuthenticated() {
 }
 
 // --- attestation chrome + drawer ------------------------------------------
+// Interim top-right chrome: an attestation shield and a sign-out control.
+// These are STOPGAPS for the current pin so the flow is testable end to end;
+// the alpha re-pin moves both into proper left-sidebar rows (next to Settings)
+// as the user requested. Both actions are also published on
+// window.__PRIVASYS_SHELL__ so the alpha's React sidebar rows can call them.
 function mountChrome() {
     const shield = el(
         'button',
@@ -222,8 +229,39 @@ function mountChrome() {
         shieldIcon(),
         el('span', { class: 'pv-shield-label' }, 'Verified')
     );
-    chrome.replaceChildren(shield);
+    const signout = el(
+        'button',
+        {
+            class: 'pv-shield pv-shield-plain',
+            title: 'Sign out of the Attested Harness',
+            'aria-label': 'Sign out',
+            onclick: () => void logout()
+        },
+        signOutIcon(),
+        el('span', { class: 'pv-shield-label' }, 'Sign out')
+    );
+    chrome.replaceChildren(shield, signout);
     chrome.classList.remove('pv-hidden');
+}
+
+// Clear the sealed session and re-gate. clearSession() tells the SDK's session
+// iframe to forget stored credentials so the reload shows the ceremony again
+// instead of silently restoring. Best-effort: even if clearSession is missing
+// or throws, we still reload into the gate.
+let loggingOut = false;
+async function logout() {
+    if (loggingOut) return;
+    loggingOut = true;
+    try {
+        if (frame && typeof frame.clearSession === 'function') await frame.clearSession();
+    } catch (err) {
+        console.warn('[privasys-shell] clearSession failed; reloading anyway:', err);
+    }
+    try {
+        delete (/** @type {any} */ (window)).__PRIVASYS_SEALED__;
+    } catch { /* ignore */ }
+    sealed = null;
+    location.reload();
 }
 
 let drawerOpen = false;
@@ -401,6 +439,35 @@ function shieldIcon(size) {
     svg.appendChild(p2);
     return svg;
 }
+
+function signOutIcon(size) {
+    const s = size || 18;
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('width', String(s));
+    svg.setAttribute('height', String(s));
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '2');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    for (const d of [
+        'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4',
+        'm16 17 5-5-5-5',
+        'M21 12H9'
+    ]) {
+        const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        p.setAttribute('d', d);
+        svg.appendChild(p);
+    }
+    return svg;
+}
+
+// Publish shell actions for the (alpha) React sidebar rows to call.
+/** @type {any} */ (window).__PRIVASYS_SHELL__ = {
+    openAttestation: () => void openAttestation(),
+    logout: () => void logout()
+};
 
 // --- go --------------------------------------------------------------------
 run();
