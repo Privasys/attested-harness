@@ -56,23 +56,12 @@
       config:
         refreshIntervalMs: 60000
 
-# The agent's ONLY egress is the attested fleet. dsh's built-in web surface —
-# Search via DeepSeek's cloud API and public WebFetch straight to the internet
-# from the container — is disabled: both bypass the egress proxy's attestation
-# gate (observed live: built-in Search 401'd on the dead key, built-in fetch
-# reached wttr.in unattested). Fail closed, never silently external.
-- id: web
-  name: "@deepseek-ai/dsh-web"
-  disabled: true
-- id: web-search-deepseek
-  name: "@deepseek-ai/dsh-web-search-deepseek"
-  disabled: true
-- id: web-fetch-http
-  name: "@deepseek-ai/dsh-web-fetch-http"
-  disabled: true
-- id: tool-web
-  name: "@deepseek-ai/dsh-tool-web"
-  disabled: true
+# The agent's ONLY egress is the attested fleet. The built-in web surface
+# (DeepSeek-cloud Search, public WebFetch), the DeepSeek reporting rows, and
+# the other non-admitted plugins are no longer disabled here — they simply do
+# not exist: the profiles compose over @privasys/harness-bundle (an ALLOW-LIST
+# replacement for dsh-base, see bundle/harness-bundle/cordis.patch.yml), and
+# the Dockerfile asserts at build time that no excluded row reappears.
 
 # The three attested platform tools, mounted over the egress proxy's
 # /tool/{name}/mcp shim (mutual RA-TLS, DepSet-gated — the proxy refuses any

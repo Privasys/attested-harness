@@ -1,0 +1,11 @@
+{
+  "name": "@privasys/harness-bundle",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Privasys Attested Harness core composition: an allow-list replacement for @deepseek-ai/dsh-base (attested egress only, no DeepSeek-cloud reporting, cache-safe compaction)",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

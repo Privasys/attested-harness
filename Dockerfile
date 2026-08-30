@@ -50,21 +50,45 @@ ENV DSH_HOME=/dsh-home
 # with our overridden Privasys mark/name).
 ENV DSH_CLIENT_TITLE="Attested Harness"
 ENV DSH_CLIENT_BUILD_PROFILE=official
-# Build the frontend, then dump-config the web + headless profiles once so dsh
-# auto-scaffolds them under $DSH_HOME/profiles/<name> (initProfile writes the
-# profile package.json + heals the module fallback — no network, plain symlinks
-# into the baked /dsh installation). In the alpha the in-box bundles
-# (@deepseek-ai/dsh-web-app / dsh-headless) resolve from the installation
-# itself, NOT from profiles/node_modules, so we assert the scaffolded profile
-# manifests exist (that is what proves the profiles are baked into the measured
-# image). Both /dsh and /dsh-home are baked into the runtime, so the links stay
-# valid there.
+# ALLOW-LIST COMPOSITION: the web + headless profiles are pre-written to use
+# @privasys/harness-bundle (bundle/harness-bundle — a reviewed allow-list
+# replacement for @deepseek-ai/dsh-base: attested egress only, no
+# DeepSeek-cloud reporting, cache-safe compaction) instead of dsh-base. The
+# bundle package is placed in $DSH_HOME/profiles/node_modules where dsh's
+# two-anchor bundle resolution finds it (installation first, then the profile
+# directory); initProfile keeps pre-existing manifests, normalizeShippedProfile
+# leaves non-template bundle lists untouched, and the module-fallback heal only
+# manages its own installation entries — the @privasys scope is never pruned.
+COPY bundle/harness-bundle /tmp/harness-bundle
+RUN mkdir -p /dsh-home/profiles/node_modules/@privasys /dsh-home/profiles/web /dsh-home/profiles/headless \
+ && cp -r /tmp/harness-bundle /dsh-home/profiles/node_modules/@privasys/harness-bundle \
+ && printf '%s\n' \
+      '{' \
+      '  "name": "dsh-profile-web",' \
+      '  "private": true,' \
+      '  "dependencies": {},' \
+      '  "dsh": { "profile": { "bundles": ["@privasys/harness-bundle", "@deepseek-ai/dsh-web-app"], "patchReload": "live" } }' \
+      '}' > /dsh-home/profiles/web/package.json \
+ && printf '%s\n' \
+      '{' \
+      '  "name": "dsh-profile-headless",' \
+      '  "private": true,' \
+      '  "dependencies": {},' \
+      '  "dsh": { "profile": { "bundles": ["@privasys/harness-bundle", "@deepseek-ai/dsh-headless"], "patchReload": "startup" } }' \
+      '}' > /dsh-home/profiles/headless/package.json
+# Build the frontend, then dump-config both profiles: this now doubles as the
+# BUILD-TIME ALLOW-LIST ASSERTION — the composed tree must carry the agent
+# core and must NOT carry any row the bundle excludes (a re-pin that slips a
+# dropped row back in fails the build here, not in production).
 RUN pnpm run build \
- && (pnpm dsh --profile web --dump-config >/dev/null 2>&1 || true) \
- && (pnpm dsh --profile headless --dump-config >/dev/null 2>&1 || true) \
- && test -e /dsh-home/profiles/web/package.json \
- && test -e /dsh-home/profiles/headless/package.json \
- && rm -rf /dsh/.git
+ && pnpm dsh --profile web --dump-config > /tmp/web-dump.yml 2>/dev/null \
+ && pnpm dsh --profile headless --dump-config > /tmp/headless-dump.yml 2>/dev/null \
+ && grep -q "agent-loop" /tmp/web-dump.yml \
+ && grep -q "agent-loop" /tmp/headless-dump.yml \
+ && ! grep -qE "web-search-deepseek|web-fetch-http|session-log-deepseek|plugin-package-inventory-deepseek|session-telemetry-otel|tool-result-pruner|dsh-llm-pi-ai" /tmp/web-dump.yml \
+ && ! grep -qE "web-search-deepseek|web-fetch-http|session-log-deepseek|plugin-package-inventory-deepseek|session-telemetry-otel|tool-result-pruner|dsh-llm-pi-ai" /tmp/headless-dump.yml \
+ && test -e /dsh-home/profiles/node_modules/@privasys/harness-bundle/cordis.patch.yml \
+ && rm -f /tmp/web-dump.yml /tmp/headless-dump.yml && rm -rf /dsh/.git /tmp/harness-bundle
 
 # ---- runtime --------------------------------------------------------------
 FROM node:22-bookworm-slim
