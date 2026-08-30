@@ -29,8 +29,28 @@
     host: "127.0.0.1"
     port: 3080
 
-# Web-search tool over the attested /tool leg. failOnStartupError: false so
-# a tool app being unreachable degrades that tool, never crashes the agent.
+# The agent's ONLY egress is the attested fleet. dsh's built-in web surface —
+# Search via DeepSeek's cloud API and public WebFetch straight to the internet
+# from the container — is disabled: both bypass the egress proxy's attestation
+# gate (observed live: built-in Search 401'd on the dead key, built-in fetch
+# reached wttr.in unattested). Fail closed, never silently external.
+- id: web
+  name: "@deepseek-ai/dsh-web"
+  disabled: true
+- id: web-search-deepseek
+  name: "@deepseek-ai/dsh-web-search-deepseek"
+  disabled: true
+- id: web-fetch-http
+  name: "@deepseek-ai/dsh-web-fetch-http"
+  disabled: true
+- id: tool-web
+  name: "@deepseek-ai/dsh-tool-web"
+  disabled: true
+
+# The three attested platform tools, mounted over the egress proxy's
+# /tool/{name}/mcp shim (mutual RA-TLS, DepSet-gated — the proxy refuses any
+# peer not in the app's sealed dependency set). failOnStartupError: false so a
+# tool app being unreachable degrades that tool, never crashes the agent.
 - insert:
     - id: mcp-web-search
       name: "@deepseek-ai/dsh-mcp-client"
@@ -38,6 +58,24 @@
         transport: streamable-http
         serverName: web_search
         url: http://127.0.0.1:9411/tool/web_search/mcp
+        headers:
+          authorization: !!js "'Bearer ' + (process.env.PRIVASYS_BEARER || '')"
+        failOnStartupError: false
+    - id: mcp-web-reader
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        transport: streamable-http
+        serverName: web_reader
+        url: http://127.0.0.1:9411/tool/web_reader/mcp
+        headers:
+          authorization: !!js "'Bearer ' + (process.env.PRIVASYS_BEARER || '')"
+        failOnStartupError: false
+    - id: mcp-drive
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        transport: streamable-http
+        serverName: drive
+        url: http://127.0.0.1:9411/tool/drive/mcp
         headers:
           authorization: !!js "'Bearer ' + (process.env.PRIVASYS_BEARER || '')"
         failOnStartupError: false
