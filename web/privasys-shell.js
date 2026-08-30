@@ -176,11 +176,28 @@ async function run() {
         sessionRelay: { appHost: CFG.appHost }
     });
 
+    // DIAGNOSTIC (temporary): the connect() flow is hanging for some users
+    // BEFORE the SDK's branded gate mounts, with a wallet push arriving from
+    // an invisible phase. Log every SDK frame message type + phase timing so
+    // one browser console capture pins the stuck RPC exactly. Remove once the
+    // restore-path hang is fixed in the SDK.
+    const t0 = Date.now();
+    const diag = (label) => console.info('[privasys-shell] +' + (Date.now() - t0) + 'ms ' + label);
+    const diagListener = (event) => {
+        if (event.origin !== CFG.authOrigin) return;
+        const type = event.data && event.data.type;
+        if (typeof type === 'string') diag('frame message: ' + type);
+    };
+    window.addEventListener('message', diagListener);
+    diag('connect() start');
+
     try {
         // connect(): silent restore -> one-tap re-approval -> full ceremony,
         // all rendered by the SDK. Resolves with the sealed session once the
         // enclave is attested and the transport is live.
         const res = await frame.connect();
+        diag('connect() resolved (session=' + Boolean(res.session) + ')');
+        window.removeEventListener('message', diagListener);
         clearConnecting();
         if (!res.session) {
             showAuthFallback(
@@ -193,6 +210,8 @@ async function run() {
         sealed = res.session;
         onAuthenticated();
     } catch (err) {
+        diag('connect() rejected: ' + String(/** @type {any} */ (err)?.message || err));
+        window.removeEventListener('message', diagListener);
         clearConnecting();
         const code = /** @type {any} */ (err)?.code;
         if (code === 'cancelled') {
@@ -411,10 +430,15 @@ function spinnerCard(title, sub) {
     logout: () => void logout(),
     attestUrl: CFG.attestBase + '/api/v1/apps/' + CFG.appName + '/attest',
     verifyQuoteUrl: CFG.verifyQuoteUrl,
-    getTokenForAudience: (audience) =>
-        frame && typeof frame.getTokenForAudience === 'function'
-            ? frame.getTokenForAudience(audience)
-            : Promise.reject(new Error('auth frame not ready'))
+    getTokenForAudience: async (audience) => {
+        if (!frame || typeof frame.getTokenForAudience !== 'function') {
+            throw new Error('auth frame not ready');
+        }
+        // The mint runs through the persistent session iframe; prime it first
+        // ("no active session iframe; call getSession() first").
+        await frame.getSession().catch(() => null);
+        return frame.getTokenForAudience(audience);
+    }
 };
 
 // --- go --------------------------------------------------------------------
