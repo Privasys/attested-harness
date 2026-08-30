@@ -266,7 +266,18 @@ function installSealedTransport(session) {
         const r = await enqueue(() => session.request(method, path, body, opts));
         return new Response(/** @type {any} */ (r.body), { status: r.status });
     }
-    /** @type {any} */ (window).__DSH_TRANSPORT__ = { fetch: sealedFetch };
+    // ownsHost: dsh gates its privileged surface (writable Settings, the
+    // Models/provider directory, native-open capabilities) on "is the browser
+    // on the operator's own machine" — loopback, by default. Our page owns the
+    // Host in exactly the sense the flag documents: dsh runs inside the
+    // enclave, reachable ONLY through this authenticated sealed session, so
+    // the loopback stand-in is vacuous. Without it the Models settings page
+    // fails with "settings are unavailable in this browser".
+    // ⚠ Known open question (multi-tenancy): every authenticated Privasys user
+    // currently reaches the SAME dsh host; per-user isolation is a separate
+    // workstream and this flag is correct only while the harness is
+    // effectively single-tenant.
+    /** @type {any} */ (window).__DSH_TRANSPORT__ = { fetch: sealedFetch, ownsHost: true };
 
     // Event downlink: route ONLY the mux socket through the sealed session.
     // Everything else (incl. the SDK's own sealed socket, which carries the

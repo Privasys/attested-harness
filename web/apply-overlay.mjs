@@ -172,4 +172,62 @@ for (const preset of ['standard', 'ptc', 'cordis']) {
   ])
 }
 
+// --- 2d. cache_salt: partition the confidential backend's prefix cache ------
+// vLLM behind Confidential AI supports a per-request `cache_salt`; dsh's
+// designed seam is the deepseek-llm-api-extensions registry (extra top-level
+// body fields, sessionId provided per request). Self-register in the registry's
+// constructor so no extra plugin row or package is needed; the session id is
+// stable per session and unique across sessions — exactly the salt contract.
+edit('packages/llm/deepseek-llm-api-extensions/src/types.ts', [
+  [
+    'extension map cache_salt merge',
+    `export interface DeepSeekLlmApiExtensionMap {}`,
+    `export interface DeepSeekLlmApiExtensionMap {\n` +
+      `  /** Privasys: per-session prefix-cache partition salt (vLLM cache_salt). */\n` +
+      `  cache_salt: string\n` +
+      `}`,
+  ],
+])
+edit('packages/llm/deepseek-llm-api-extensions/src/index.ts', [
+  [
+    'registry constructor cache_salt registration',
+    `  constructor(ctx: Context) {\n` +
+      `    super(ctx, 'deepseekLlmApiExtensions')\n` +
+      `  }`,
+    `  constructor(ctx: Context) {\n` +
+      `    super(ctx, 'deepseekLlmApiExtensions')\n` +
+      `    // Privasys: partition the confidential backend's prefix cache per\n` +
+      `    // session (vLLM cache_salt) so sessions never share cached prefixes.\n` +
+      `    this.register('cache_salt', {\n` +
+      `      prepare: request => request.sessionId === undefined\n` +
+      `        ? undefined\n` +
+      `        : { value: request.sessionId },\n` +
+      `    })\n` +
+      `  }`,
+  ],
+])
+
+// --- 2e. preset personas: Privasys identity ---------------------------------
+// Preset dsh-persona rows SHADOW the deployment persona (same section name in
+// the agent scope), so the profile-level Privasys persona never shows in
+// preset sessions — rewrite the preset texts themselves.
+const PRIVASYS_PERSONA =
+  `      You are a coding agent of the Privasys Attested Harness, powered by the {{model}} model running in a hardware-attested confidential enclave. Your working directory is {{cwd}}.`
+for (const preset of ['standard', 'ptc']) {
+  edit(`packages/preset/agent-presets/presets/${preset}/agent.cordis.yml`, [
+    [
+      `preset ${preset} persona rebrand`,
+      `      You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}.`,
+      PRIVASYS_PERSONA,
+    ],
+  ])
+}
+edit('packages/preset/agent-presets/presets/cordis/agent.cordis.yml', [
+  [
+    'preset cordis persona rebrand',
+    `      You are a coding agent powered by the {{model}} model, running on the DeepSeek Harness. Your working directory is {{cwd}}.`,
+    PRIVASYS_PERSONA,
+  ],
+])
+
 console.log('[overlay] done')

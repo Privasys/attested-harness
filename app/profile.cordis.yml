@@ -29,6 +29,33 @@
     host: "127.0.0.1"
     port: 3080
 
+# System prompt: Privasys deployment persona, and drop the fixed "powered by
+# DeepSeek Harness" identity line. NOTE: agent presets mount their own
+# dsh-persona row which SHADOWS this deployment persona in preset sessions —
+# apply-overlay.mjs rewrites the preset persona texts too; this row covers
+# non-preset flows (headless, custom compositions). A patch REPLACES the
+# row's whole config, so restate everything.
+- id: system-prompt
+  name: "@deepseek-ai/dsh-system-prompt"
+  config:
+    includeHarnessIdentity: false
+    persona: >-
+      You are an agent of the Privasys Attested Harness, running inside a
+      hardware-attested confidential enclave. Your model and web tools run
+      exclusively in attested enclaves over mutually authenticated encrypted
+      channels; the platform operator cannot read this conversation.
+
+# Clock for the agent (dsh injects NO date/time by default). dsh-time-context
+# appends a timestamp message at the ABSOLUTE TAIL of the step batch
+# (prepend:true listener) and throttles refreshes — the cache-safe injection
+# shape our Confidential AI context work standardised (never mutate the
+# prefix; volatile context rides the tail).
+- insert:
+    - id: time-context
+      name: "@deepseek-ai/dsh-time-context"
+      config:
+        refreshIntervalMs: 60000
+
 # The agent's ONLY egress is the attested fleet. dsh's built-in web surface —
 # Search via DeepSeek's cloud API and public WebFetch straight to the internet
 # from the container — is disabled: both bypass the egress proxy's attestation

@@ -92,6 +92,9 @@ ENV DSH_HOME=/dsh-home
 # the ingress Director's Host pinning so dsh's /api DNS-rebinding fence accepts
 # the browser's sealed same-origin requests. Stable across enclaves for this app.
 ENV HARNESS_PUBLIC_HOST=attested-harness.apps-test.privasys.org
+# No telemetry leaves the enclave: any non-empty value hard-disables dsh's
+# telemetry row at profile composition (profile-boot resolveTelemetryPatch).
+ENV DSH_TELEMETRY_DISABLED=1
 ENV HARNESS_MODEL_HOST=confidential-ai.apps.privasys.org
 ENV HARNESS_TOOL_HOSTS=web_search=web-search-brave.apps.privasys.org,web_reader=web-browser-lightpanda.apps.privasys.org,drive=privasys-drive.apps.privasys.org
 # Public browser-UI shell: these prefixes are the forked dsh SPA + Privasys
