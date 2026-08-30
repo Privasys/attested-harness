@@ -47,6 +47,11 @@ const CFG = Object.assign(
         appName: '590ebdc3-1b63-401f-bbb8-22d5f3886c5e',
         // The enclave host the sealed session is attested against.
         appHost: 'attested-harness.apps-test.privasys.org',
+        // Control plane that owns THIS app's row (the /attest report) — the
+        // dev CP for the apps-test harness. Anonymous endpoint.
+        attestBase: 'https://api-test.developer.privasys.org',
+        // Attestation server quote verification (needs an audience token).
+        verifyQuoteUrl: 'https://as.privasys.org/verify-quote',
         // Broker relay for the wallet QR / push channel.
         brokerUrl: 'wss://relay.privasys.org/relay'
     },
@@ -358,12 +363,10 @@ class SealedWebSocketAdapter extends EventTarget {
 function msg(err) { return String((err && err.message) || err || 'error'); }
 function noop() { /* keep the FIFO chain alive regardless of task outcome */ }
 
-// --- attestation drawer ----------------------------------------------------
-// The Attestation ("Verified") and User (Sign out) CONTROLS live in dsh's left
-// sidebar foot, next to Settings — React rows registered into the
-// sidebar.footer.action slot (overlay/brand/PrivasysRows.tsx) that call the
-// window.__PRIVASYS_SHELL__ hooks below. The chrome element here only hosts
-// the attestation drawer + backdrop when opened; it renders no buttons.
+// The Secure Hardware Attestation and User (Sign out) controls live in dsh's
+// left sidebar foot (overlay/brand/PrivasysAttestation.tsx + PrivasysRows.tsx)
+// — rendered by dsh itself on the SHARED @privasys/attestation-view component.
+// The shell owns only auth, transport, and logout; chrome stays empty.
 function mountChrome() {
     chrome.replaceChildren();
     chrome.classList.remove('pv-hidden');
@@ -389,167 +392,27 @@ async function logout() {
     location.reload();
 }
 
-let drawerOpen = false;
-async function openAttestation() {
-    if (drawerOpen) return;
-    drawerOpen = true;
-
-    const body = el('div', { class: 'pv-drawer-body' },
-        spinnerCard('Reading attestation…', 'Fetching the live evidence over the sealed session.'));
-    const drawer = el('aside', { class: 'pv-drawer', role: 'dialog', 'aria-label': 'Attestation' },
-        el('header', { class: 'pv-drawer-head' },
-            el('h2', null, 'Attestation'),
-            el('button', {
-                class: 'pv-drawer-close', 'aria-label': 'Close', onclick: () => closeDrawer()
-            }, '×')
-        ),
-        body
-    );
-    const backdrop = el('div', { class: 'pv-backdrop', onclick: () => closeDrawer() });
-    chrome.appendChild(backdrop);
-    chrome.appendChild(drawer);
-    // Let the button interactions co-exist with the full dsh surface.
-    chrome.classList.add('pv-chrome-open');
-
-    function closeDrawer() {
-        drawerOpen = false;
-        drawer.remove();
-        backdrop.remove();
-        chrome.classList.remove('pv-chrome-open');
-    }
-
-    try {
-        const data = await fetchAttestation();
-        body.replaceChildren(attestationView(data));
-    } catch (err) {
-        body.replaceChildren(errorCard(
-            'Could not read attestation',
-            String(/** @type {any} */ (err)?.message || err) +
-            '. Your session is still sealed and encrypted; this only affects the evidence panel.'
-        ));
-    }
-}
-
-// Pull the harness's own attestation summary over the sealed session (served
-// by the Go ingress at /privasys/attestation — the egress proxy's dependency
-// fold + the harness measurement + the pinned model/tool peers).
-async function fetchAttestation() {
-    if (!sealed) throw new Error('no sealed session');
-    const r = await sealed.request('GET', '/privasys/attestation');
-    if (r.status >= 400) throw new Error('attestation endpoint returned ' + r.status);
-    const text = new TextDecoder().decode(r.body);
-    return JSON.parse(text);
-}
-
-function attestationView(data) {
-    const app = data.app || {};
-    const deps = Array.isArray(data.dependencies) ? data.dependencies : [];
-    const frag = document.createDocumentFragment();
-
-    frag.appendChild(el('p', { class: 'pv-lead' },
-        'Your wallet attested this enclave end-to-end before your session opened. ' +
-        'Everything below is checkable evidence, not a claim.'));
-
-    // The enclave you are talking to.
-    frag.appendChild(section('The enclave', [
-        kv('Host', app.public_host || CFG.appHost),
-        kv('TEE', app.tee || 'Intel TDX'),
-        app.mrtd ? kv('Measurement (MRTD)', mono(app.mrtd)) : null,
-        app.code_hash ? kv('App code (OID 3.2)', mono(app.code_hash)) : null,
-        app.app_id ? kv('App id (OID 3.6)', mono(app.app_id)) : null
-    ]));
-
-    // The attested dependency set the agent loop is fenced to.
-    const depChildren = deps.length
-        ? deps.map((d) => depCard(d))
-        : [el('p', { class: 'pv-muted' },
-            'No dependency set reported. The egress proxy enforces the pinned ' +
-            'peers regardless; this panel could not read the live fold.')];
-    frag.appendChild(section(
-        'Attested dependency set',
-        [el('p', { class: 'pv-muted' },
-            'Every model and tool call the agent makes is dialled over mutual ' +
-            'RA-TLS and refused unless the peer matches one of these measurements ' +
-            '(fail-closed). Model auth is the attested client certificate — no key.'),
-        ...depChildren]
-    ));
-
-    // The human-readable routes those measurements gate.
-    const routeRows = [];
-    if (data.model_host) routeRows.push(kv('Model (Confidential AI)', data.model_host));
-    if (data.tool_hosts && typeof data.tool_hosts === 'object') {
-        for (const [name, host] of Object.entries(data.tool_hosts)) {
-            routeRows.push(kv('Tool · ' + name, String(host)));
-        }
-    }
-    if (routeRows.length) {
-        frag.appendChild(section('Routes', [
-            el('p', { class: 'pv-muted' },
-                'The hosts the agent reaches — each dialled only if it matches a ' +
-                'pinned measurement above.'),
-            el('div', { class: 'pv-kv-list' }, ...routeRows)
-        ]));
-    }
-
-    if (data.dependency_fold) {
-        frag.appendChild(section('Dependency fold', [
-            el('p', { class: 'pv-muted' },
-                'A digest of the pinned set; it changes if any pinned peer changes.'),
-            mono(data.dependency_fold)
-        ]));
-    }
-
-    return frag;
-}
-
-function depCard(d) {
-    const rows = [];
-    if (d.host) rows.push(kv('Host', d.host));
-    if (d.role) rows.push(kv('Role', d.role));
-    if (d.code_hash) rows.push(kv('Code (OID 3.2)', mono(d.code_hash)));
-    if (d.app_id) rows.push(kv('App id (OID 3.6)', mono(d.app_id)));
-    if (Array.isArray(d.measurements)) {
-        for (const m of d.measurements) {
-            if (m.mrtd) rows.push(kv('MRTD', mono(m.mrtd)));
-            if (m.mrenclave) rows.push(kv('MRENCLAVE', mono(m.mrenclave)));
-        }
-    }
-    return el('div', { class: 'pv-dep' },
-        el('div', { class: 'pv-dep-name' }, d.name || d.role || d.host || 'peer'),
-        el('div', { class: 'pv-kv-list' }, ...rows));
-}
-
 // --- small view helpers ----------------------------------------------------
-function section(title, children) {
-    return el('section', { class: 'pv-section' },
-        el('h3', null, title),
-        ...children.filter(Boolean));
-}
-function kv(k, v) {
-    return el('div', { class: 'pv-kv' },
-        el('span', { class: 'pv-kv-k' }, k),
-        typeof v === 'string' ? el('span', { class: 'pv-kv-v' }, v) : v);
-}
-function mono(s) {
-    return el('code', { class: 'pv-mono' }, String(s));
-}
 function spinnerCard(title, sub) {
     return el('div', { class: 'pv-card pv-center' },
         el('div', { class: 'pv-spinner' }),
         el('div', { class: 'pv-card-title' }, title),
         sub ? el('div', { class: 'pv-card-sub' }, sub) : null);
 }
-function errorCard(title, sub, retry) {
-    return el('div', { class: 'pv-card pv-center' },
-        el('div', { class: 'pv-card-title' }, title),
-        sub ? el('div', { class: 'pv-card-sub' }, sub) : null,
-        retry ? el('button', { class: 'pv-btn', onclick: retry }, 'Try again') : null);
-}
-// Publish shell actions for the React sidebar rows (overlay/brand/
-// PrivasysRows.tsx) to call.
+// Publish shell actions + attestation config for the React sidebar rows and
+// the trajectory Attestation tab (overlay/brand + overlay/trajectory). The
+// "Secure Hardware Attestation" row renders the SHARED @privasys/
+// attestation-view against these; getTokenForAudience mints the
+// attestation-server-audience token through the sealed AuthFrame (the same
+// pattern chat.privasys.org uses).
 /** @type {any} */ (window).__PRIVASYS_SHELL__ = {
-    openAttestation: () => void openAttestation(),
-    logout: () => void logout()
+    logout: () => void logout(),
+    attestUrl: CFG.attestBase + '/api/v1/apps/' + CFG.appName + '/attest',
+    verifyQuoteUrl: CFG.verifyQuoteUrl,
+    getTokenForAudience: (audience) =>
+        frame && typeof frame.getTokenForAudience === 'function'
+            ? frame.getTokenForAudience(audience)
+            : Promise.reject(new Error('auth frame not ready'))
 };
 
 // --- go --------------------------------------------------------------------

@@ -13,7 +13,8 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import { OfficialBrandMark, OfficialBrandName } from './Brand.tsx'
-import { PrivasysAttestationRow, PrivasysUserRow } from './PrivasysRows.tsx'
+import { PrivasysUserRow } from './PrivasysRows.tsx'
+import { PrivasysAttestationRow } from './PrivasysAttestation.tsx'
 
 /** Required service: the UI slot registry. */
 export const inject = ['slots']

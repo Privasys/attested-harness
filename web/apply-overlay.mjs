@@ -230,4 +230,86 @@ edit('packages/preset/agent-presets/presets/cordis/agent.cordis.yml', [
   ],
 ])
 
+// --- 2f. trajectory "Attestation" detail tab --------------------------------
+// The Inspect view's detail tabs are HARDCODED in TrajectoryTable.tsx (no slot
+// exists — verified against the generated slot catalog), so the sixth tab
+// needs three anchored edits + locale keys. The tab component itself is a new
+// file (overlay/trajectory/PrivasysAttestationTab.tsx, react+fetch only).
+put(
+  'packages/client/ui-trajectory/src/client/PrivasysAttestationTab.tsx',
+  'overlay/trajectory/PrivasysAttestationTab.tsx',
+)
+edit('packages/client/ui-trajectory/src/client/TrajectoryTable.tsx', [
+  [
+    'attestation tab import',
+    `import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'`,
+    `import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'\n` +
+      `import { PrivasysAttestationTab } from './PrivasysAttestationTab.tsx'`,
+  ],
+  [
+    'DetailTab union attestation',
+    `  | 'timing'\n  | 'diff'\ntype RecordState`,
+    `  | 'timing'\n  | 'diff'\n  | 'attestation'\ntype RecordState`,
+  ],
+  [
+    'detailTabs tool branch attestation',
+    `  return [\n` +
+      `    { id: 'overview', labelKey: 'tab.summary' },\n` +
+      `    ...(record.cell.inputDetail ? [{ id: 'input', labelKey: 'tab.payload' } as const] : []),\n` +
+      `    ...(record.cell.outputDetail ? [{ id: 'output', labelKey: 'tab.result' } as const] : []),\n` +
+      `    { id: 'schema', labelKey: 'tab.schema' },\n` +
+      `    { id: 'timing', labelKey: 'tab.timing' },\n` +
+      `  ]`,
+    `  return [\n` +
+      `    { id: 'overview', labelKey: 'tab.summary' },\n` +
+      `    ...(record.cell.inputDetail ? [{ id: 'input', labelKey: 'tab.payload' } as const] : []),\n` +
+      `    ...(record.cell.outputDetail ? [{ id: 'output', labelKey: 'tab.result' } as const] : []),\n` +
+      `    { id: 'schema', labelKey: 'tab.schema' },\n` +
+      `    { id: 'timing', labelKey: 'tab.timing' },\n` +
+      `    { id: 'attestation', labelKey: 'tab.attestation' },\n` +
+      `  ]`,
+  ],
+  [
+    'attestation tab panel',
+    `            {!promptSelected && selected !== undefined && activeTab === 'timing' && (\n` +
+      `              <RecordTiming record={selected} t={t} />\n` +
+      `            )}`,
+    `            {!promptSelected && selected !== undefined && activeTab === 'timing' && (\n` +
+      `              <RecordTiming record={selected} t={t} />\n` +
+      `            )}\n` +
+      `            {!promptSelected && selected !== undefined && activeTab === 'attestation' && (\n` +
+      `              <PrivasysAttestationTab toolWireName={selected.cell.text} />\n` +
+      `            )}`,
+  ],
+])
+edit('packages/client/ui-trajectory/src/client/locales.ts', [
+  [
+    'zh tab.attestation',
+    `  'tab.timing': '计时',`,
+    `  'tab.timing': '计时',\n  'tab.attestation': '远程证明',`,
+  ],
+  [
+    'en tab.attestation',
+    `  'tab.timing': 'Timing',`,
+    `  'tab.timing': 'Timing',\n  'tab.attestation': 'Attestation',`,
+  ],
+])
+
+// --- 3. shared attestation view (vendored AS SOURCE) + its stylesheet -------
+// The SAME @privasys/attestation-view every Privasys property renders
+// (canonical: websites/libs/attestation-view), placed into ui-brand-official
+// so the sidebar row compiles against it. The stylesheet is the lib's Tailwind
+// utilities pre-extracted to a static file (theme + utilities layers ONLY — no
+// preflight, so dsh's own styling is untouched).
+for (const rel of [
+  'index.ts', 'types.ts', 'use-attestation.ts',
+  'components/attestation-result-view.tsx', 'components/composite-attestation-view.tsx',
+  'components/attestation-connect.tsx', 'components/badge.tsx', 'components/field-row.tsx',
+  'internal/use-copy.ts',
+]) {
+  put(`packages/client/ui-brand-official/src/client/attestation-view/${rel}`, `vendor/attestation-view/${rel}`)
+}
+put('packages/client/ui-brand-official/src/client/PrivasysAttestation.tsx', 'overlay/brand/PrivasysAttestation.tsx')
+put('apps/web/public/privasys/privasys-attestation.css', 'vendor/privasys-attestation.css')
+
 console.log('[overlay] done')

@@ -13,7 +13,6 @@ import { useEffect, useRef, useState } from 'react'
 import type { SidebarFooterActionOwnerProps } from '@deepseek-ai/dsh-client-ui-sidebar/client'
 
 interface PrivasysShellHooks {
-  openAttestation?: () => void
   logout?: () => void
 }
 
@@ -45,23 +44,15 @@ const STYLE = `
 .pv-menu-item:hover { background: rgba(128, 128, 128, 0.15); }
 `
 
-function ensureStyles(): void {
+/** Inject the shared row styles once (also used by PrivasysAttestation.tsx). */
+export function ensureRowStyles(): void {
   if (document.getElementById(STYLE_ID) !== null) return
   const tag = document.createElement('style')
   tag.id = STYLE_ID
   tag.textContent = STYLE
   document.head.appendChild(tag)
 }
-
-function ShieldIcon({ size = 16 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-      <path d="m9 12 2 2 4-4" />
-    </svg>
-  )
-}
+const ensureStyles = ensureRowStyles
 
 function UserIcon({ size = 16 }: { size?: number }) {
   return (
@@ -84,22 +75,9 @@ function SignOutIcon({ size = 15 }: { size?: number }) {
   )
 }
 
-/** "Verified" row — opens the attestation evidence drawer. */
-export function PrivasysAttestationRow({ wide }: SidebarFooterActionOwnerProps) {
-  useEffect(ensureStyles, [])
-  return (
-    <button
-      type="button"
-      className={`pv-row pv-row-verified${wide ? '' : ' pv-row-narrow'}`}
-      title="Attestation — verify what you are connected to"
-      aria-label="Attestation"
-      onClick={() => shell().openAttestation?.()}
-    >
-      <ShieldIcon size={wide ? 16 : 18} />
-      {wide ? <span>Verified</span> : null}
-    </button>
-  )
-}
+// The attestation row lives in ./PrivasysAttestation.tsx now — "Secure
+// Hardware Attestation", built on the SHARED @privasys/attestation-view
+// component with live verification state (green = verified, never decoration).
 
 /** User row — opens a menu holding session actions (Sign out). */
 export function PrivasysUserRow({ wide }: SidebarFooterActionOwnerProps) {
