@@ -25,7 +25,7 @@ RUN CGO_ENABLED=0 go build -tags ratls -trimpath -ldflags="-s -w" \
 
 # ---- dsh at the pin -------------------------------------------------------
 FROM node:22-bookworm AS dsh-builder
-ARG DSH_PIN=cd5ef8148158c3a752a658978873241fdf8e2bbc
+ARG DSH_PIN=0a53fb55bea101816fa226bb964ae2bed71c343b
 RUN corepack enable \
  && git clone https://github.com/deepseek-ai/deepseek-harness /dsh \
  && git -C /dsh checkout "${DSH_PIN}"

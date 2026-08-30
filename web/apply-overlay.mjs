@@ -67,8 +67,17 @@ put('apps/web/public/privasys/privasys-shell.js', 'privasys-shell.js')
 put('apps/web/public/privasys/privasys-shell.css', 'privasys-shell.css')
 put('apps/web/public/privasys/privasys-auth-client.iife.js', 'vendor/privasys-auth-client.iife.js')
 put('apps/web/public/privasys/privasys-logo.mini.svg', 'vendor/privasys-logo.mini.svg')
-// Rebrand: Privasys mark + name in dsh's brand slots, and the Privasys favicon.
-put('packages/client/ui-brand-official/src/client/Brand.tsx', 'overlay/brand/Brand.tsx')
+// Rebrand at the SOURCE: FishLogo/BrandWordmark in ui-primitives carry every
+// brand surface (the sidebar mark, the wordmark, and the conversation hero's
+// animated fallback, which composes its own svg from FISH_LOGO_PATH) — so the
+// stock ui-brand-official Brand.tsx needs no override on the alpha. Its
+// index.ts IS overridden: it keeps upstream's brand registrations and adds the
+// two Privasys sidebar-foot rows (Attestation "Verified" + User/Sign out) into
+// the sidebar.footer.action list slot, next to Settings.
+put('packages/client/ui-primitives/src/FishLogo.tsx', 'overlay/brand/FishLogo.tsx')
+put('packages/client/ui-primitives/src/BrandWordmark.tsx', 'overlay/brand/BrandWordmark.tsx')
+put('packages/client/ui-brand-official/src/client/index.ts', 'overlay/brand/index.ts')
+put('packages/client/ui-brand-official/src/client/PrivasysRows.tsx', 'overlay/brand/PrivasysRows.tsx')
 put('apps/web/public/favicon.svg', 'vendor/privasys-logo.mini.svg')
 
 // --- 2a. gateway mux server: accept binary frames ---------------------------

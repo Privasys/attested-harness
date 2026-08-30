@@ -125,11 +125,25 @@ async function run() {
         return;
     }
 
-    // One empty container; the SDK's `page` presentation fills it with the
-    // ENTIRE branded surface. This is the global Auth SDK UI every Privasys
-    // property uses — do not wrap it in our own chrome.
+    // One container; the SDK's `page` presentation fills it with the ENTIRE
+    // branded surface when a ceremony is needed. During connect()'s SILENT
+    // restore the SDK paints nothing (the session iframe is invisible), which
+    // used to leave a blank white page for several seconds — so show a
+    // connecting card (chat does the same) and drop it the moment the SDK
+    // mounts its ceremony iframe or connect() settles.
     gate.replaceChildren();
     gate.classList.remove('pv-hidden');
+    const connecting = el('div', { class: 'pv-connecting' },
+        spinnerCard('Connecting…', 'Restoring your secure session.'));
+    gate.appendChild(connecting);
+    const gateObserver = new MutationObserver(() => {
+        if (gate.querySelector('iframe')) {
+            connecting.remove();
+            gateObserver.disconnect();
+        }
+    });
+    gateObserver.observe(gate, { childList: true, subtree: true });
+    const clearConnecting = () => { gateObserver.disconnect(); connecting.remove(); };
 
     frame = new AuthFrame({
         apiBase: CFG.apiBase,
@@ -160,6 +174,7 @@ async function run() {
         // all rendered by the SDK. Resolves with the sealed session once the
         // enclave is attested and the transport is live.
         const res = await frame.connect();
+        clearConnecting();
         if (!res.session) {
             showAuthFallback(
                 'Signed in, but the enclave returned no sealed session. The harness ' +
@@ -171,6 +186,7 @@ async function run() {
         sealed = res.session;
         onAuthenticated();
     } catch (err) {
+        clearConnecting();
         const code = /** @type {any} */ (err)?.code;
         if (code === 'cancelled') {
             showAuthFallback('Sign-in was closed.', true);
@@ -331,36 +347,14 @@ class SealedWebSocketAdapter extends EventTarget {
 function msg(err) { return String((err && err.message) || err || 'error'); }
 function noop() { /* keep the FIFO chain alive regardless of task outcome */ }
 
-// --- attestation chrome + drawer ------------------------------------------
-// Interim top-right chrome: an attestation shield and a sign-out control.
-// These are STOPGAPS for the current pin so the flow is testable end to end;
-// the alpha re-pin moves both into proper left-sidebar rows (next to Settings)
-// as the user requested. Both actions are also published on
-// window.__PRIVASYS_SHELL__ so the alpha's React sidebar rows can call them.
+// --- attestation drawer ----------------------------------------------------
+// The Attestation ("Verified") and User (Sign out) CONTROLS live in dsh's left
+// sidebar foot, next to Settings — React rows registered into the
+// sidebar.footer.action slot (overlay/brand/PrivasysRows.tsx) that call the
+// window.__PRIVASYS_SHELL__ hooks below. The chrome element here only hosts
+// the attestation drawer + backdrop when opened; it renders no buttons.
 function mountChrome() {
-    const shield = el(
-        'button',
-        {
-            class: 'pv-shield',
-            title: 'Attestation — verify what you are connected to',
-            'aria-label': 'Attestation',
-            onclick: openAttestation
-        },
-        shieldIcon(),
-        el('span', { class: 'pv-shield-label' }, 'Verified')
-    );
-    const signout = el(
-        'button',
-        {
-            class: 'pv-shield pv-shield-plain',
-            title: 'Sign out of the Attested Harness',
-            'aria-label': 'Sign out',
-            onclick: () => void logout()
-        },
-        signOutIcon(),
-        el('span', { class: 'pv-shield-label' }, 'Sign out')
-    );
-    chrome.replaceChildren(shield, signout);
+    chrome.replaceChildren();
     chrome.classList.remove('pv-hidden');
 }
 
@@ -540,50 +534,8 @@ function errorCard(title, sub, retry) {
         sub ? el('div', { class: 'pv-card-sub' }, sub) : null,
         retry ? el('button', { class: 'pv-btn', onclick: retry }, 'Try again') : null);
 }
-function shieldIcon(size) {
-    const s = size || 18;
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('viewBox', '0 0 24 24');
-    svg.setAttribute('width', String(s));
-    svg.setAttribute('height', String(s));
-    svg.setAttribute('fill', 'none');
-    svg.setAttribute('stroke', 'currentColor');
-    svg.setAttribute('stroke-width', '2');
-    svg.setAttribute('stroke-linecap', 'round');
-    svg.setAttribute('stroke-linejoin', 'round');
-    const p1 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    p1.setAttribute('d', 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z');
-    const p2 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    p2.setAttribute('d', 'm9 12 2 2 4-4');
-    svg.appendChild(p1);
-    svg.appendChild(p2);
-    return svg;
-}
-
-function signOutIcon(size) {
-    const s = size || 18;
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('viewBox', '0 0 24 24');
-    svg.setAttribute('width', String(s));
-    svg.setAttribute('height', String(s));
-    svg.setAttribute('fill', 'none');
-    svg.setAttribute('stroke', 'currentColor');
-    svg.setAttribute('stroke-width', '2');
-    svg.setAttribute('stroke-linecap', 'round');
-    svg.setAttribute('stroke-linejoin', 'round');
-    for (const d of [
-        'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4',
-        'm16 17 5-5-5-5',
-        'M21 12H9'
-    ]) {
-        const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        p.setAttribute('d', d);
-        svg.appendChild(p);
-    }
-    return svg;
-}
-
-// Publish shell actions for the (alpha) React sidebar rows to call.
+// Publish shell actions for the React sidebar rows (overlay/brand/
+// PrivasysRows.tsx) to call.
 /** @type {any} */ (window).__PRIVASYS_SHELL__ = {
     openAttestation: () => void openAttestation(),
     logout: () => void logout()

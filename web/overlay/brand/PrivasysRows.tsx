@@ -1,0 +1,157 @@
+/**
+ * Privasys sidebar foot rows (attested-harness fork): an Attestation row
+ * ("Verified" — opens the attestation evidence drawer) and a User row (opens a
+ * menu with Sign out). Registered into the `sidebar.footer.action` list slot
+ * (see ./index.ts), so they sit at the sidebar foot next to Settings — dsh's
+ * designed extension seam, no sidebar source is edited.
+ *
+ * Both actions call the vanilla auth shell through `window.__PRIVASYS_SHELL__`
+ * (privasys-shell.js owns the sealed session, the attestation drawer, and
+ * logout); the rows are pure triggers.
+ */
+import { useEffect, useRef, useState } from 'react'
+import type { SidebarFooterActionOwnerProps } from '@deepseek-ai/dsh-client-ui-sidebar/client'
+
+interface PrivasysShellHooks {
+  openAttestation?: () => void
+  logout?: () => void
+}
+
+function shell(): PrivasysShellHooks {
+  return (globalThis as { __PRIVASYS_SHELL__?: PrivasysShellHooks }).__PRIVASYS_SHELL__ ?? {}
+}
+
+// One shared stylesheet for both rows (hover states need real CSS). Theme-proof
+// without knowing dsh's tokens: text rides currentColor, hovers are translucent,
+// and the menu uses the system Canvas/CanvasText colors, which follow the theme.
+const STYLE_ID = 'privasys-sidebar-rows'
+const STYLE = `
+.pv-row { display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 7px 10px; border: none; border-radius: 8px; background: transparent;
+  color: inherit; font: inherit; font-size: 13px; cursor: pointer;
+  opacity: 0.85; text-align: left; }
+.pv-row:hover { background: rgba(128, 128, 128, 0.15); opacity: 1; }
+.pv-row-narrow { justify-content: center; padding: 7px 0; }
+.pv-row-verified { color: #2bbd82; }
+.pv-user-wrap { position: relative; width: 100%; }
+.pv-menu { position: absolute; bottom: calc(100% + 6px); left: 8px; z-index: 30;
+  min-width: 150px; padding: 4px; border-radius: 10px;
+  background: Canvas; color: CanvasText;
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25); }
+.pv-menu-item { display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 7px 10px; border: none; border-radius: 7px; background: transparent;
+  color: inherit; font: inherit; font-size: 13px; cursor: pointer; text-align: left; }
+.pv-menu-item:hover { background: rgba(128, 128, 128, 0.15); }
+`
+
+function ensureStyles(): void {
+  if (document.getElementById(STYLE_ID) !== null) return
+  const tag = document.createElement('style')
+  tag.id = STYLE_ID
+  tag.textContent = STYLE
+  document.head.appendChild(tag)
+}
+
+function ShieldIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+      <path d="m9 12 2 2 4-4" />
+    </svg>
+  )
+}
+
+function UserIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4 21c0-4 3.6-6 8-6s8 2 8 6" />
+    </svg>
+  )
+}
+
+function SignOutIcon({ size = 15 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <path d="m16 17 5-5-5-5" />
+      <path d="M21 12H9" />
+    </svg>
+  )
+}
+
+/** "Verified" row — opens the attestation evidence drawer. */
+export function PrivasysAttestationRow({ wide }: SidebarFooterActionOwnerProps) {
+  useEffect(ensureStyles, [])
+  return (
+    <button
+      type="button"
+      className={`pv-row pv-row-verified${wide ? '' : ' pv-row-narrow'}`}
+      title="Attestation — verify what you are connected to"
+      aria-label="Attestation"
+      onClick={() => shell().openAttestation?.()}
+    >
+      <ShieldIcon size={wide ? 16 : 18} />
+      {wide ? <span>Verified</span> : null}
+    </button>
+  )
+}
+
+/** User row — opens a menu holding session actions (Sign out). */
+export function PrivasysUserRow({ wide }: SidebarFooterActionOwnerProps) {
+  useEffect(ensureStyles, [])
+  const [open, setOpen] = useState(false)
+  const wrapRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onPointer = (event: PointerEvent): void => {
+      if (wrapRef.current !== null && !wrapRef.current.contains(event.target as Node)) setOpen(false)
+    }
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointer)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onPointer)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  return (
+    <div className="pv-user-wrap" ref={wrapRef}>
+      {open
+        ? (
+          <div className="pv-menu" role="menu" aria-label="User">
+            <button
+              type="button"
+              className="pv-menu-item"
+              role="menuitem"
+              onClick={() => { setOpen(false); shell().logout?.() }}
+            >
+              <SignOutIcon />
+              <span>Sign out</span>
+            </button>
+          </div>
+        )
+        : null}
+      <button
+        type="button"
+        className={`pv-row${wide ? '' : ' pv-row-narrow'}`}
+        title="User"
+        aria-label="User"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => { setOpen(value => !value) }}
+      >
+        <UserIcon size={wide ? 16 : 18} />
+        {wide ? <span>User</span> : null}
+      </button>
+    </div>
+  )
+}
