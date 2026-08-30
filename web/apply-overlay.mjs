@@ -100,7 +100,15 @@ edit('packages/api/gateway/src/stream-server.ts', [
   ],
 ])
 
-// --- 2b. connection requestRejection: defer the launch-token guard ----------
+// --- 2b. connection: defer the alpha's browser launch-token guard to the
+//         attested ingress, for BOTH the /api fence and the index (GET /).
+//         On the confidential platform dsh is reachable ONLY via the enclave
+//         manager -> in-TCB egress-proxy (loopback), which forces a trusted
+//         Host; the sealed CBOR-AES-GCM session the manager already terminated
+//         IS the authentication, and the sealed relay cannot carry dsh's
+//         per-process launch-token cookie. So a request that clears the
+//         trusted-host fence is authenticated. (browserAuth still owns
+//         authenticatedUrl + the token/cookie machinery for direct use.)
 edit('packages/client/connection/src/rpc-host.ts', [
   [
     'requestRejection launch-token deferral',
@@ -110,14 +118,21 @@ edit('packages/client/connection/src/rpc-host.ts', [
       `  }`,
     `  requestRejection(request: ConnectionTrustRequest): ConnectionRequestRejection {\n` +
       `    if (!isTrustedApiRequest(request, this.trustedHosts)) return 403\n` +
-      `    // Privasys: on the confidential platform dsh is reachable ONLY via the\n` +
-      `    // enclave manager -> in-TCB egress-proxy (loopback), which forces a\n` +
-      `    // trusted Host. The sealed CBOR-AES-GCM session the manager already\n` +
-      `    // terminated IS the authentication, and the sealed relay cannot carry\n` +
-      `    // dsh's per-process launch-token cookie — so a request that clears the\n` +
-      `    // trusted-host fence is authenticated. Defer the browser token guard to\n` +
-      `    // that attested ingress. (browserAuth still owns index/authenticatedUrl.)\n` +
+      `    // Privasys: trusted Host == attested ingress == authenticated (see note above).\n` +
       `    return undefined\n` +
+      `  }`,
+  ],
+  [
+    'authorizeIndex launch-token deferral',
+    `  authorizeIndex(request: ConnectionIndexRequest, response: ConnectionIndexResponse): boolean {\n` +
+      `    return this.browserAuth.authorizeIndex(request, response)\n` +
+      `  }`,
+    `  authorizeIndex(request: ConnectionIndexRequest, response: ConnectionIndexResponse): boolean {\n` +
+      `    // Privasys: a trusted-host index request came through the measured\n` +
+      `    // ingress, so serve the SPA without the launch-token cookie the sealed\n` +
+      `    // relay cannot carry (ConnectionIndexRequest extends ConnectionTrustRequest).\n` +
+      `    if (isTrustedApiRequest(request, this.trustedHosts)) return true\n` +
+      `    return this.browserAuth.authorizeIndex(request, response)\n` +
       `  }`,
   ],
 ])
