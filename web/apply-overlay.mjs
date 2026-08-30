@@ -146,4 +146,30 @@ edit('packages/client/connection/src/rpc-host.ts', [
   ],
 ])
 
+// --- 2c. agent presets: drop the built-in web tool row ----------------------
+// The profile layer disables the `web` service (the agent's only egress is the
+// attested fleet), but each agent preset mounts `tool-web` in its OWN
+// composition tree, which profile patches do not reach — the row then waits on
+// the missing `web` service forever and the whole preset fails to mount
+// ("session create failed: preset ... 1 row(s) did not activate"). Remove the
+// row from every preset that carries it (identical block in all three).
+const TOOL_WEB_BLOCK =
+  `# The \`web\` service and its search provider stay in the host composition; only\n` +
+  `# the model-facing tool is per-session.\n` +
+  `- id: tool-web\n` +
+  `  name: '@deepseek-ai/dsh-tool-web'\n` +
+  `  config:\n` +
+  `    fetch: true\n` +
+  `    searchTimeoutMs: 60000\n`
+for (const preset of ['standard', 'ptc', 'cordis']) {
+  edit(`packages/preset/agent-presets/presets/${preset}/agent.cordis.yml`, [
+    [
+      `preset ${preset} tool-web removal`,
+      TOOL_WEB_BLOCK,
+      `# Privasys: the built-in web tool is removed — web access rides the attested\n` +
+        `# MCP fleet (mcp__web_search__*, mcp__web_reader__*) via the egress proxy.\n`,
+    ],
+  ])
+}
+
 console.log('[overlay] done')
