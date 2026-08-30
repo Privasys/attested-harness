@@ -40,6 +40,26 @@ function shellConfig(): ShellAttestationConfig {
   return (globalThis as { __PRIVASYS_SHELL__?: ShellAttestationConfig }).__PRIVASYS_SHELL__ ?? {}
 }
 
+// SINGLE-FLIGHT audience-token mint with a STABLE function identity.
+// useAttestation's auto-verify effect depends on the token thunk; an inline
+// arrow (new identity per render) re-fired the effect on every state change —
+// with a failing mint that meant render -> mint 400 -> setState -> render...
+// an infinite loop that hammered the IdP (hundreds of POST /token 400) and
+// starved the page. One mint per page load; failure memoized (no retries —
+// quote verification then reports one error and stops).
+let mintPromise: Promise<string> | null = null
+function stableAttestationToken(): Promise<string> {
+  if (mintPromise === null) {
+    const cfg = shellConfig()
+    mintPromise = typeof cfg.getTokenForAudience === 'function'
+      ? cfg.getTokenForAudience('attestation-server')
+      : Promise.reject(new Error('auth frame not ready'))
+    // Memoize rejection too; surface it, never loop on it.
+    mintPromise.catch(() => {})
+  }
+  return mintPromise
+}
+
 const ROW_STYLE_ID = 'privasys-attestation-styles'
 const ROW_STYLE = `
 .pv-att-overlay { position: fixed; inset: 0; z-index: 2147482500;
@@ -92,15 +112,12 @@ export function PrivasysAttestationRow({ wide }: SidebarFooterActionOwnerProps) 
   const verifyQuoteUrl = cfg.verifyQuoteUrl ?? 'https://as.privasys.org/verify-quote'
   // The management-service /attest report is ANONYMOUS — never gate it on a
   // token (a mint failure must not blank the whole report). Only the
-  // attestation-server quote verification needs the audience token.
-  const tokenThunk = () =>
-    cfg.getTokenForAudience !== undefined
-      ? cfg.getTokenForAudience('attestation-server')
-      : Promise.resolve('')
+  // attestation-server quote verification needs the audience token, minted
+  // once via the module-level stable thunk (see stableAttestationToken).
   const [state, actions] = useAttestation({
     attestUrl,
     verifyQuoteUrl,
-    verifyQuoteToken: tokenThunk,
+    verifyQuoteToken: stableAttestationToken,
     autoInspect: Boolean(attestUrl),
     autoVerifyQuote: Boolean(attestUrl),
   })

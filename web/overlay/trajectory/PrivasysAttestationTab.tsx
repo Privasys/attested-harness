@@ -34,6 +34,21 @@ function shellConfig() {
   return (globalThis as { __PRIVASYS_SHELL__?: Record<string, unknown> }).__PRIVASYS_SHELL__ ?? {}
 }
 
+// Single-flight audience-token mint with a stable identity — an inline thunk
+// would re-fire useAttestation's auto-verify effect every render (see the
+// note in ui-brand-official/PrivasysAttestation.tsx).
+let mintPromise = null
+function stableAttestationToken() {
+  if (mintPromise === null) {
+    const cfg = shellConfig()
+    mintPromise = typeof cfg.getTokenForAudience === 'function'
+      ? cfg.getTokenForAudience('attestation-server')
+      : Promise.reject(new Error('auth frame not ready'))
+    mintPromise.catch(() => {})
+  }
+  return mintPromise
+}
+
 function serverOf(wireName: string): string | undefined {
   if (!wireName.startsWith('mcp__')) return undefined
   return wireName.slice('mcp__'.length).split('__')[0]
@@ -75,17 +90,13 @@ export function PrivasysAttestationTab({ toolWireName }: { toolWireName: string 
 
   const cfg = shellConfig()
   const verifyQuoteUrl = cfg.verifyQuoteUrl ?? 'https://as.privasys.org/verify-quote'
-  const tokenThunk = () =>
-    typeof cfg.getTokenForAudience === 'function'
-      ? cfg.getTokenForAudience('attestation-server')
-      : Promise.resolve('')
   const attestUrl = known !== undefined
     ? `${TOOLS_CONTROL_PLANE}/api/v1/apps/${dashed(known.appId)}/attest`
     : ''
   const [state, actions] = useAttestation({
     attestUrl,
     verifyQuoteUrl,
-    verifyQuoteToken: tokenThunk,
+    verifyQuoteToken: stableAttestationToken,
     autoInspect: Boolean(attestUrl),
     autoVerifyQuote: Boolean(attestUrl),
   })

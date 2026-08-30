@@ -236,25 +236,33 @@ function showAuthFallback(message, closed) {
 }
 
 function onAuthenticated() {
+    // Hide the gate FIRST: even if transport install or dsh boot throws, the
+    // page must never stay stuck behind the auth surface.
+    hideGate();
+    mountChrome();
+    console.info('[privasys-shell] gate hidden; installing sealed transport');
     // Hand the sealed transport to dsh and boot it. The patched apps/web
     // main.ts reads __PRIVASYS_SEALED__ when its connection plugin applies.
     /** @type {any} */ (window).__PRIVASYS_SEALED__ = sealed;
     // Install the sealed transport BEFORE boot: dsh's connection plugin reads
     // window.__DSH_TRANSPORT__ when it applies, and its event client opens the
     // mux WebSocket during boot — both must already be sealed-routed.
-    installSealedTransport(sealed);
+    try {
+        installSealedTransport(sealed);
+    } catch (err) {
+        console.error('[privasys-shell] sealed transport install threw:', err);
+    }
     const boot = /** @type {any} */ (window).__PRIVASYS_BOOT__;
     if (typeof boot === 'function') {
         try {
             boot();
+            console.info('[privasys-shell] dsh boot invoked');
         } catch (err) {
             console.error('[privasys-shell] dsh boot threw:', err);
         }
     } else {
         console.warn('[privasys-shell] __PRIVASYS_BOOT__ not installed; dsh entry missing?');
     }
-    hideGate();
-    mountChrome();
 }
 
 // --- sealed transport injection (dsh alpha @Remote gateway) ----------------
