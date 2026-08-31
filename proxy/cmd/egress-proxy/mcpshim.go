@@ -192,6 +192,12 @@ func fetchCatalogue(r *http.Request, client *http.Client, host string) ([]upstre
 	if auth := r.Header.Get("Authorization"); auth != "" {
 		req.Header.Set("Authorization", auth)
 	}
+	// The catalogue fetch is the one assistant request tool apps serve
+	// without an acting user (it runs on mcp-client's startup timer), but
+	// naming the subject when one is bound is harmless and consistent.
+	if sub := currentSubject(); sub != "" {
+		req.Header.Set("X-Privasys-On-Behalf-Of", sub)
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -222,6 +228,12 @@ func callTool(r *http.Request, client *http.Client, host, fn string, args json.R
 	req.Header.Set("Content-Type", "application/json")
 	if auth := r.Header.Get("Authorization"); auth != "" {
 		req.Header.Set("Authorization", auth)
+	}
+	// Name the acting user for user-scoped tool apps (Drive requires it on
+	// every tool call). The subject is the relay-asserted sign-in identity
+	// recorded by the ingress front — never anything the model supplied.
+	if sub := currentSubject(); sub != "" {
+		req.Header.Set("X-Privasys-On-Behalf-Of", sub)
 	}
 	resp, err := client.Do(req)
 	if err != nil {

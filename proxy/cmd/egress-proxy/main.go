@@ -266,6 +266,9 @@ func serveIngress(cfg config, deps *attested.DepSet) {
 	baseDirector := rp.Director
 	rp.Director = func(req *http.Request) {
 		baseDirector(req)
+		// Bind the acting user: the sealed relay asserts the signed-in
+		// subject on every unsealed request (see subject.go).
+		recordSubject(req.Header.Get("X-Privasys-Sub"))
 		if publicHost != "" {
 			req.Host = publicHost
 		}
