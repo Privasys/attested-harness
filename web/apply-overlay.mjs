@@ -67,6 +67,7 @@ put('apps/web/public/privasys/privasys-shell.js', 'privasys-shell.js')
 put('apps/web/public/privasys/privasys-shell.css', 'privasys-shell.css')
 put('apps/web/public/privasys/privasys-auth-client.iife.js', 'vendor/privasys-auth-client.iife.js')
 put('apps/web/public/privasys/privasys-logo.mini.svg', 'vendor/privasys-logo.mini.svg')
+put('apps/web/public/privasys/privasys-harness-logo.svg', 'vendor/privasys-harness-logo.svg')
 // Rebrand at the SOURCE: FishLogo/BrandWordmark in ui-primitives carry every
 // brand surface (the sidebar mark, the wordmark, and the conversation hero's
 // animated fallback, which composes its own svg from FISH_LOGO_PATH) — so the

@@ -113,6 +113,10 @@ let frame = /** @type {any} */ (null);
 // branded UI. We render NO chrome of our own around it (mirrors
 // chat.privasys.org's SignInGate).
 const HARNESS_PITCH = {
+    // Brand lockup above the pitch title. Passing a pitch replaces the SDK's
+    // default brand panel (logo + wordmark + ceremony status), so the pitch
+    // must carry its own logo or the gate loses all branding on the left.
+    logoUrl: location.origin + '/privasys/privasys-harness-logo.svg',
     title: 'A coding agent you can verify.',
     description:
         'The Privasys Harness runs its agent and model inside hardware-protected ' +
