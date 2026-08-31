@@ -163,13 +163,12 @@ async function run() {
         clientId: CFG.clientId,
         appName: CFG.appName,
         brokerUrl: CFG.brokerUrl,
-        // openid+offline for the session; email+profile because the SDK's
-        // audience-token mint (getTokenForAudience — used to verify the
-        // attestation quote signature) requests a fixed
-        // "audience:X openid email profile offline_access" scope and the IdP
-        // refuses a mint broader than the original grant ("requested scope
-        // email not present in granted scope"). Same grant chat uses.
-        scope: ['openid', 'email', 'profile', 'offline_access'],
+        // Data minimisation: the harness needs the user's Display Name (the
+        // `name` attribute, scope `profile`) and nothing else — no email.
+        // The SDK's audience-token mint (getTokenForAudience, used to verify
+        // the attestation quote signature) rides the session's own granted
+        // scopes as of sdk-v0.11.1, so nothing forces a wider grant here.
+        scope: ['openid', 'profile', 'offline_access'],
         container: gate,
         presentation: 'page',
         // Sealed instance: the end-to-end encrypted session is established only
@@ -191,6 +190,10 @@ async function run() {
         // enclave is attested and the transport is live.
         const res = await frame.connect();
         clearConnecting();
+        // The user's Display Name (`name` claim, granted under the `profile`
+        // scope) rides the session access token — decode it for the sidebar
+        // User row. Presentation only: authorisation stays claim-blind.
+        userDisplayName = claimFromJwt(res.accessToken, 'name');
         if (!res.session) {
             showAuthFallback(
                 'Signed in, but the enclave returned no sealed session. The harness ' +
@@ -422,8 +425,24 @@ function spinnerCard(title, sub) {
 // attestation-view against these; getTokenForAudience mints the
 // attestation-server-audience token through the sealed AuthFrame (the same
 // pattern chat.privasys.org uses).
+// The signed-in user's Display Name, set once connect() resolves (the React
+// rows mount only after the post-auth dsh boot, so it is ready by then).
+let userDisplayName;
+
+/** Decode one claim from a JWT payload (presentation only, no verification). */
+function claimFromJwt(jwt, claim) {
+    try {
+        const b64 = String(jwt).split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+        const value = JSON.parse(atob(b64))[claim];
+        return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
 /** @type {any} */ (window).__PRIVASYS_SHELL__ = {
     logout: () => void logout(),
+    userName: () => userDisplayName,
     attestUrl: CFG.attestBase + '/api/v1/apps/' + CFG.appId + '/attest',
     verifyQuoteUrl: CFG.verifyQuoteUrl,
     getTokenForAudience: async (audience) => {

@@ -14,6 +14,8 @@ import type { SidebarFooterActionOwnerProps } from '@deepseek-ai/dsh-client-ui-s
 
 interface PrivasysShellHooks {
   logout?: () => void
+  /** The signed-in user's Display Name (the `profile`-scope `name` claim). */
+  userName?: () => string | undefined
 }
 
 function shell(): PrivasysShellHooks {
@@ -90,11 +92,14 @@ function SignOutIcon({ size = 15 }: { size?: number }) {
 // Hardware Attestation", built on the SHARED @privasys/attestation-view
 // component with live verification state (green = verified, never decoration).
 
-/** User row — opens a menu holding session actions (Sign out). */
+/** User row — the signed-in user's Display Name; opens a menu (Sign out). */
 export function PrivasysUserRow({ wide }: SidebarFooterActionOwnerProps) {
   useEffect(ensureStyles, [])
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
+  // Resolved at render: the shell sets it before the post-auth dsh boot, so
+  // it is ready by the time the sidebar mounts.
+  const name = shell().userName?.() || 'User'
 
   useEffect(() => {
     if (!open) return
@@ -132,14 +137,20 @@ export function PrivasysUserRow({ wide }: SidebarFooterActionOwnerProps) {
       <button
         type="button"
         className={`pv-row${wide ? '' : ' pv-row-narrow'}`}
-        title="User"
-        aria-label="User"
+        title={name}
+        aria-label={name}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => { setOpen(value => !value) }}
       >
         <UserIcon size={wide ? 16 : 18} />
-        {wide ? <span>User</span> : null}
+        {wide
+          ? (
+            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
+              {name}
+            </span>
+          )
+          : null}
       </button>
     </div>
   )
