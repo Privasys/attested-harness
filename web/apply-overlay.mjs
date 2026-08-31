@@ -263,6 +263,22 @@ edit('packages/preset/agent-presets/presets/cordis/agent.cordis.yml', [
   ],
 ])
 
+// --- 2f0. conversation hero headline ----------------------------------------
+// The empty-session hero tagline is a locale literal ("Into the Unknown") —
+// replace with the Privasys promise in both dictionaries.
+edit('packages/client/ui-conversation/src/client/locales.ts', [
+  [
+    'zh hero headline',
+    `  'hero.headline': '探索未至之境',`,
+    `  'hero.headline': '你的数据。你的掌控。你的智能体。',`,
+  ],
+  [
+    'en hero headline',
+    `  'hero.headline': 'Into the Unknown',`,
+    `  'hero.headline': 'Your data. Your control. Your agent.',`,
+  ],
+])
+
 // --- 2f. trajectory "Attestation" detail tab --------------------------------
 // The Inspect view's detail tabs are HARDCODED in TrajectoryTable.tsx (no slot
 // exists — verified against the generated slot catalog), so the sixth tab

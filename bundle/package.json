@@ -1,7 +1,0 @@
-{
-  "name": "@privasys/dsh-bundle",
-  "private": true,
-  "version": "0.0.1",
-  "description": "dsh-privasys bundle: the four attestation plugins (WS2)",
-  "workspaces": ["plugins/*"]
-}

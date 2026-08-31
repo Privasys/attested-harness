@@ -1,62 +1,65 @@
 # Privasys Harness
 
-An agent harness where the harness, the model, the tools, and the workspace
-are all attested. We host [DeepSeek Harness (dsh)](https://github.com/deepseek-ai/deepseek-harness)
-as a confidential Privasys platform app (TDX) and add the attestation
-substrate around and beneath it. dsh is MIT-licensed; its license and
-third-party notices ship in every image.
+A confidential agent harness: the harness, the model, the tools, and the
+workspace are all attested. We host [DeepSeek Harness (dsh)](https://github.com/deepseek-ai/deepseek-harness)
+(MIT, plugin-composed) inside a TDX enclave as a Privasys platform app and add
+the attestation substrate around and beneath it. dsh's licence and third-party
+notices ship in every image.
 
 ## Architecture in one paragraph
 
 dsh composes declaratively at boot (profiles → bundles → config patches), so
-the plugin tree is vendored into the measured image and the profile is frozen
-through the platform's configure-freeze: the *composition itself* is part of
-the attested identity. The agent loop, session log, and web surface are stock
-dsh. Every attested concern lives in two thin layers we own: a set of dsh
-plugins on documented seams (`bundle/`), and a Go egress proxy (`proxy/`)
-that holds **all** attestation authority.
+the composition itself is part of the attested identity: the image build pins
+dsh at an exact commit, replaces the default plugin roster with an allow-list
+bundle (`bundle/harness-bundle`), applies a small anchored patch queue
+(`web/apply-overlay.mjs`, which fails the build if upstream moved), and
+asserts the composed tree at build time. The agent loop, session log, and web
+surface are stock dsh. Everything attested lives in one thin layer we own: a
+Go egress proxy that holds **all** attestation authority. The browser reaches
+the enclave over the Privasys sealed transport (unary and WebSocket); the
+gateway only ever relays ciphertext.
 
 ## The load-bearing rule
 
-**Attestation authority never lives in Node.** All outbound attested legs —
-model calls to Confidential AI, tool calls to Drive / web-search /
-web-browse — go through the egress proxy: a localhost listener that speaks
-mutual RA-TLS (challenge extension via the Privasys Go fork) and enforces the
-app's declared dependency set (OID 65230.6.1) fail-closed, exactly as the
-platform's other confidential apps do. The TypeScript plugins route through
-the proxy and render its verdicts; they cannot weaken them. dsh's bulk is
-treated as untrusted-for-isolation: it orchestrates, it is never the barrier.
+**Attestation authority never lives in Node.** All outbound attested legs,
+the model calls to Confidential AI and the tool calls to the platform tool
+apps, go through the egress proxy: a localhost listener that speaks mutual
+RA-TLS (challenge extension via the Privasys Go fork) and enforces the app's
+declared dependency set (OID 65230.6.1) fail-closed, exactly as the
+platform's other confidential apps do. dsh mounts the tools through its stock
+MCP client against the proxy's local MCP shims, so the TypeScript side is
+pure composition: it routes through the proxy and renders its verdicts, but
+cannot weaken them.
 
 ## Layout
 
 | Path | What |
 |---|---|
-| `proxy/` | Attested egress proxy (Go, fork toolchain). Routes: CAI `/v1/*`, tool apps. Enforcement: manager-served 6.1 set, per-session capability binding. |
-| `bundle/plugins/llm-privasys` | `ctx.llm` adapter → CAI through the proxy; surfaces the reproducibility block as session events + a web-UI node renderer. |
-| `bundle/plugins/tools-privasys` | `ctx.tools` registrations for the attested tool apps; `tools/post-execute` appends attestation evidence to the session log. |
-| `bundle/plugins/approval-wallet` | `ctx.approval` provider → Privasys wallet push approval (operation-bound WebAuthn). |
-| `bundle/plugins/runtime-privasys` | Boot glue: platform env, readiness, sealed-ingress identity (`X-Privasys-Sub` → session owner), trust-fence config. |
-| `vendor-dsh/` | The dsh vendoring pin + procedure (source is vendored at image build, not committed here). |
-| `Dockerfile` | The measured app image: node runtime + built dsh at the pin + bundle + proxy + entrypoint. |
+| `proxy/` | Attested egress proxy (Go, fork toolchain). Model route (`/model/v1/*` → Confidential AI), per-tool MCP shims (`/tool/{name}/mcp` → attested tool apps), mutual RA-TLS, fail-closed dependency-set gate, ingress header hygiene. |
+| `web/apply-overlay.mjs` | The patch queue applied over the vendored dsh tree at image build. Anchored edits only: a missing anchor fails the build, which is the re-pin signal. |
+| `web/overlay/`, `web/vendor/` | Replaced/new files: gated boot, Privasys brand, sidebar Attestation/User rows, the per-tool Attestation tab, and the shared `@privasys/attestation-view` component vendored as source. |
+| `web/privasys-shell.js/.css` | The vanilla auth shell: Privasys ID sign-in gate, sealed transport injection (`__DSH_TRANSPORT__` + sealed WebSocket), attestation UI glue. |
+| `bundle/harness-bundle/` | The allow-list composition bundle that replaces `dsh-base` (generated by `web/gen-bundle.mjs`; attested egress only, no vendor-cloud reporting). |
+| `app/` | Deployment profile (`profile.cordis.yml`, measured via configure-freeze) and container entrypoint. |
+| `dev/` | Local development composition: stock headless dsh against the proxy on a workstation. |
+| `Dockerfile` | The measured app image: clones dsh at the pin, applies the overlay, builds, asserts the composed tree, sweeps vendor-authored agent-visible content. |
 
 ## dsh pin
 
-Current pin: `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e` (release `dsh-0.1.1-rc.2`).
-Upgrades are deliberate re-pin commits (rebase our patch queue, re-run the
-seam-coverage audit, new measured image version) — never a floating branch.
+Current pin: `0a53fb55bea101816fa226bb964ae2bed71c343b` (release
+`dsh-v0.1.2-alpha.2`), set as `DSH_PIN` in the Dockerfile. Upgrades are
+deliberate re-pin commits: regenerate the bundle (`web/gen-bundle.mjs`),
+dry-run the overlay against a checkout of the new pin, rebase any anchor that
+moved, ship a new measured image version. Never a floating branch.
 
-## Tenancy and isolation (summary)
+## Tenancy
 
-Multi-user from day one; tenancy is a deployment property (mutualised or
-dedicated from one image). Isolation rails live in the auditable layer:
-per-user vault-derived keys for session logs/files/credentials, proxy-bound
-capabilities (a session's tool grants attach to its sealed-session subject in
-the proxy), per-user execution world (Drive-scoped fs, per-session sandbox),
-per-session workers. Cross-business mutualisation is gated on the rails
-audit; dedicated deployments remain for blast-radius preference.
+Today a deployment is one trust domain, on the platform's standard tenancy
+choices (mutualised or dedicated). Per-user isolation rails inside one
+deployment (per-user keys, proxy-bound capabilities, per-session workers) are
+in design; until they land, share a deployment only within one trust domain.
 
-## Status
+## Licence
 
-WS1 transport LANDED: the egress proxy carries live attested calls (fork
-confidential-ai agent transport), WS2 the four plugins, WS3 packaging + dev
-E2E, WS4 consent/store/docs, WS5 isolation rails.
+AGPL-3.0 (see `LICENSE`). The vendored dsh tree remains MIT; its licence and
+third-party notices are preserved in the image.
