@@ -24,8 +24,8 @@ fi
 # PRIVASYS_APP_ID; this baked (measured) map selects the public host and the
 # control-plane bases for the browser shell — no per-deployment config input.
 case "${PRIVASYS_APP_ID:-}" in
-  ce9c451e-e0e4-46d5-9e56-269302f2a7c8)  # privasys-harness (production)
-    export HARNESS_PUBLIC_HOST="privasys-harness.apps.privasys.org"
+  be129fce-28d7-40bf-85d0-44a94a78ed43)  # harness (production)
+    export HARNESS_PUBLIC_HOST="harness.apps.privasys.org"
     PV_ATTEST_BASE="https://api.developer.privasys.org"
     PV_API_BASE="https://api.privasys.org"
     ;;
