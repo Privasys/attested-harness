@@ -43,8 +43,13 @@ const CFG = Object.assign(
         rpId: 'privasys.id',
         // Shared platform OIDC client.
         clientId: 'privasys-platform',
-        // The app as registered on the platform (UUID is unambiguous).
-        appName: '590ebdc3-1b63-401f-bbb8-22d5f3886c5e',
+        // Human name the SDK puts in the QR descriptor / wallet push — the
+        // wallet SNAPSHOTS this string into its session cards and consent
+        // records (it never resolves the app id itself), so it must be the
+        // product name, never an identifier.
+        appName: 'Privasys Harness',
+        // The app as registered on the platform (attest-report lookups).
+        appId: '590ebdc3-1b63-401f-bbb8-22d5f3886c5e',
         // The enclave host the sealed session is attested against.
         appHost: 'attested-harness.apps-test.privasys.org',
         // Control plane that owns THIS app's row (the /attest report) — the
@@ -415,7 +420,7 @@ function spinnerCard(title, sub) {
 // pattern chat.privasys.org uses).
 /** @type {any} */ (window).__PRIVASYS_SHELL__ = {
     logout: () => void logout(),
-    attestUrl: CFG.attestBase + '/api/v1/apps/' + CFG.appName + '/attest',
+    attestUrl: CFG.attestBase + '/api/v1/apps/' + CFG.appId + '/attest',
     verifyQuoteUrl: CFG.verifyQuoteUrl,
     getTokenForAudience: async (audience) => {
         if (!frame || typeof frame.getTokenForAudience !== 'function') {
