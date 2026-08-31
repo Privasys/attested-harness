@@ -1,4 +1,4 @@
-# Attested Harness
+# Privasys Harness
 
 An agent harness where the harness, the model, the tools, and the workspace
 are all attested. We host [DeepSeek Harness (dsh)](https://github.com/deepseek-ai/deepseek-harness)

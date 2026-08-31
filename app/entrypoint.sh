@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# Attested Harness entrypoint. The Go proxy owns BOTH network edges:
+# Privasys Harness entrypoint. The Go proxy owns BOTH network edges:
 #   - egress on loopback :9411  (dsh plugins -> attested peers: CAI, tools)
 #   - ingress on $PORT          (platform -> dsh web)
 # Fronting $PORT lets the platform health check pass from second one while

@@ -1,4 +1,4 @@
-// Attested Harness — browser auth + attestation shell.
+// Privasys Harness — browser auth + attestation shell.
 //
 // This is the Privasys fork layer over the stock dsh web UI. It runs as a
 // SEPARATE bundle from dsh (its own DOM roots, no shared framework) and owns
@@ -110,7 +110,7 @@ let frame = /** @type {any} */ (null);
 const HARNESS_PITCH = {
     title: 'A coding agent you can verify.',
     description:
-        'The Attested Harness runs its agent and model inside hardware-protected ' +
+        'The Privasys Harness runs its agent and model inside hardware-protected ' +
         'enclaves. The operator can never read your prompts or the agent’s work, ' +
         'and you can verify it yourself by remote attestation.',
     bullets: [
@@ -169,35 +169,18 @@ async function run() {
         pitch: HARNESS_PITCH,
         // App identity for the gate header + the "Secured by Privasys ID" seal.
         app: {
-            displayName: 'Attested Harness',
+            displayName: 'Privasys Harness',
             logoUrl: location.origin + '/privasys/privasys-logo.mini.svg'
         },
         // Establish the sealed transport against the harness enclave.
         sessionRelay: { appHost: CFG.appHost }
     });
 
-    // DIAGNOSTIC (temporary): the connect() flow is hanging for some users
-    // BEFORE the SDK's branded gate mounts, with a wallet push arriving from
-    // an invisible phase. Log every SDK frame message type + phase timing so
-    // one browser console capture pins the stuck RPC exactly. Remove once the
-    // restore-path hang is fixed in the SDK.
-    const t0 = Date.now();
-    const diag = (label) => console.info('[privasys-shell] +' + (Date.now() - t0) + 'ms ' + label);
-    const diagListener = (event) => {
-        if (event.origin !== CFG.authOrigin) return;
-        const type = event.data && event.data.type;
-        if (typeof type === 'string') diag('frame message: ' + type);
-    };
-    window.addEventListener('message', diagListener);
-    diag('connect() start');
-
     try {
         // connect(): silent restore -> one-tap re-approval -> full ceremony,
         // all rendered by the SDK. Resolves with the sealed session once the
         // enclave is attested and the transport is live.
         const res = await frame.connect();
-        diag('connect() resolved (session=' + Boolean(res.session) + ')');
-        window.removeEventListener('message', diagListener);
         clearConnecting();
         if (!res.session) {
             showAuthFallback(
@@ -210,8 +193,6 @@ async function run() {
         sealed = res.session;
         onAuthenticated();
     } catch (err) {
-        diag('connect() rejected: ' + String(/** @type {any} */ (err)?.message || err));
-        window.removeEventListener('message', diagListener);
         clearConnecting();
         const code = /** @type {any} */ (err)?.code;
         if (code === 'cancelled') {
@@ -240,7 +221,6 @@ function onAuthenticated() {
     // page must never stay stuck behind the auth surface.
     hideGate();
     mountChrome();
-    console.info('[privasys-shell] gate hidden; installing sealed transport');
     // Hand the sealed transport to dsh and boot it. The patched apps/web
     // main.ts reads __PRIVASYS_SEALED__ when its connection plugin applies.
     /** @type {any} */ (window).__PRIVASYS_SEALED__ = sealed;
@@ -256,7 +236,6 @@ function onAuthenticated() {
     if (typeof boot === 'function') {
         try {
             boot();
-            console.info('[privasys-shell] dsh boot invoked');
         } catch (err) {
             console.error('[privasys-shell] dsh boot threw:', err);
         }

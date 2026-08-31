@@ -1,5 +1,5 @@
 /**
- * "Attested Harness" wordmark in place of the DeepSeek wordmark svg
+ * "Privasys Harness" wordmark in place of the DeepSeek wordmark svg
  * (attested-harness fork). Overrides
  * `packages/client/ui-primitives/src/BrandWordmark.tsx` keeping the exact
  * upstream interface (BrandWordmarkProps, size = height in px, includeMark).
@@ -44,7 +44,7 @@ export function BrandWordmark({ size = 24, className, includeMark = true }: Bran
           lineHeight: 1,
         }}
       >
-        Attested Harness
+        Privasys Harness
       </span>
     </span>
   )

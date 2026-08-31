@@ -1,4 +1,4 @@
-# Attested Harness composition overlay (measured; part of the app identity).
+# Privasys Harness composition overlay (measured; part of the app identity).
 # Applied over the stock dsh `web` (or `headless`) profile.
 
 # Model leg -> the attested egress proxy's /model route (CAI qwen36 on m4).
@@ -40,7 +40,7 @@
   config:
     includeHarnessIdentity: false
     persona: >-
-      You are an agent of the Privasys Attested Harness, running inside a
+      You are an agent of the Privasys Harness, running inside a
       hardware-attested confidential enclave. Your model and web tools run
       exclusively in attested enclaves over mutually authenticated encrypted
       channels; the platform operator cannot read this conversation.
@@ -77,36 +77,9 @@
 # not exist: the profiles compose over @privasys/harness-bundle (an ALLOW-LIST
 # replacement for dsh-base, see bundle/harness-bundle/cordis.patch.yml), and
 # the Dockerfile asserts at build time that no excluded row reappears.
-
-# The three attested platform tools, mounted over the egress proxy's
-# /tool/{name}/mcp shim (mutual RA-TLS, DepSet-gated — the proxy refuses any
-# peer not in the app's sealed dependency set). failOnStartupError: false so a
-# tool app being unreachable degrades that tool, never crashes the agent.
-- insert:
-    - id: mcp-web-search
-      name: "@deepseek-ai/dsh-mcp-client"
-      config:
-        transport: streamable-http
-        serverName: web_search
-        url: http://127.0.0.1:9411/tool/web_search/mcp
-        headers:
-          authorization: !!js "'Bearer ' + (process.env.PRIVASYS_BEARER || '')"
-        failOnStartupError: false
-    - id: mcp-web-reader
-      name: "@deepseek-ai/dsh-mcp-client"
-      config:
-        transport: streamable-http
-        serverName: web_reader
-        url: http://127.0.0.1:9411/tool/web_reader/mcp
-        headers:
-          authorization: !!js "'Bearer ' + (process.env.PRIVASYS_BEARER || '')"
-        failOnStartupError: false
-    - id: mcp-drive
-      name: "@deepseek-ai/dsh-mcp-client"
-      config:
-        transport: streamable-http
-        serverName: drive
-        url: http://127.0.0.1:9411/tool/drive/mcp
-        headers:
-          authorization: !!js "'Bearer ' + (process.env.PRIVASYS_BEARER || '')"
-        failOnStartupError: false
+#
+# The three attested platform tools (web_search / web_reader / drive over the
+# egress proxy's /tool/{name}/mcp shim) are composed IN THE AGENT PRESETS, not
+# here: preset rows are what the Settings "Plugins" inventory lists as session
+# plugins, and the preset layer is where per-preset activation lives (see
+# apply-overlay.mjs §2c — the rows replace the removed built-in tool-web).

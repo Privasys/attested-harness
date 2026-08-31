@@ -1,4 +1,4 @@
-# Attested Harness composition overlay (measured; part of the app identity).
+# Privasys Harness composition overlay (measured; part of the app identity).
 # Applied over the stock dsh `web` (or `headless`) profile.
 
 # Model leg -> the attested egress proxy's /model route (CAI qwen36 on m4).

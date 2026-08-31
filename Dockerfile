@@ -1,4 +1,4 @@
-# Attested Harness — measured app image (WS3).
+# Privasys Harness — measured app image (WS3).
 #
 # Three stages: the egress proxy on the Privasys Go fork (-tags ratls, the
 # ClientHello challenge extension), the vendored dsh tree at the pin, and a
@@ -48,7 +48,7 @@ ENV DSH_HOME=/dsh-home
 # time) and the brand-slot occupants (Brand.tsx overlay) carry Privasys, not
 # DeepSeek. DSH_CLIENT_BUILD_PROFILE=official keeps the brand slots filled (now
 # with our overridden Privasys mark/name).
-ENV DSH_CLIENT_TITLE="Attested Harness"
+ENV DSH_CLIENT_TITLE="Privasys Harness"
 ENV DSH_CLIENT_BUILD_PROFILE=official
 # ALLOW-LIST COMPOSITION: the web + headless profiles are pre-written to use
 # @privasys/harness-bundle (bundle/harness-bundle — a reviewed allow-list

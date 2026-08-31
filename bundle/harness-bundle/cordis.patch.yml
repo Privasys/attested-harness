@@ -1,4 +1,4 @@
-# @privasys/harness-bundle — the Privasys Attested Harness core composition.
+# @privasys/harness-bundle — the Privasys Privasys Harness core composition.
 #
 # ALLOW-LIST fork of @deepseek-ai/dsh-base (generated from the pinned dsh tree,
 # then reviewed + committed — regenerate with web/gen-bundle.mjs on a re-pin

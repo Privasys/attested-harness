@@ -1,5 +1,5 @@
 /**
- * Attested Harness — browser smoke tests.
+ * Privasys Harness — browser smoke tests.
  *
  * These catch the classes of failure that shipped undetected before:
  *   1. Reachability + the enclave static-unsealed exemption: the public URL
@@ -44,7 +44,7 @@ test.describe('attested-harness public surface', () => {
     // The SDK ceremony runs in an iframe hosted by the IdP origin.
     await expect(page.locator('iframe')).toBeVisible({ timeout: 20_000 })
     // Title must be the Privasys app name, never the dsh default.
-    await expect(page).toHaveTitle(/Attested Harness/i, { timeout: 20_000 })
+    await expect(page).toHaveTitle(/Privasys Harness/i, { timeout: 20_000 })
     const title = await page.title()
     expect(title, 'dsh default title leaked').not.toMatch(/DSH Local Build/i)
     // The Privasys favicon + logo asset must be the served ones.

@@ -1,4 +1,4 @@
-/* Attested Harness shell — auth gate + attestation drawer.
+/* Privasys Harness shell — auth gate + attestation drawer.
    Scoped to #privasys-shell so it never bleeds into the dsh UI underneath. */
 
 #privasys-shell {

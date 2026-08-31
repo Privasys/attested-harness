@@ -146,13 +146,19 @@ edit('packages/client/connection/src/rpc-host.ts', [
   ],
 ])
 
-// --- 2c. agent presets: drop the built-in web tool row ----------------------
-// The profile layer disables the `web` service (the agent's only egress is the
-// attested fleet), but each agent preset mounts `tool-web` in its OWN
-// composition tree, which profile patches do not reach — the row then waits on
-// the missing `web` service forever and the whole preset fails to mount
-// ("session create failed: preset ... 1 row(s) did not activate"). Remove the
-// row from every preset that carries it (identical block in all three).
+// --- 2c. agent presets: the attested MCP fleet replaces the built-in web tool
+// Each agent preset mounts `tool-web` in its OWN composition tree, which
+// profile patches do not reach — the row would wait on the missing `web`
+// service forever and the whole preset fails to mount. In its place the three
+// attested platform tools are composed HERE, in the preset, not in the
+// deployment profile: preset rows are what the Settings "Plugins" inventory
+// lists as session plugins (the deployment plane is collapsed under it), and
+// the preset layer is where per-preset activation lives — first-class,
+// visible, toggleable rows instead of invisible plumbing. mcp-client reserves
+// its serverName per standing preset scope (scopeOf(ctx)), so all three
+// presets can mount the same fleet without a namespace collision, and each
+// preset mounts ONCE per process — three shim connections per preset, local
+// and stateless.
 const TOOL_WEB_BLOCK =
   `# The \`web\` service and its search provider stay in the host composition; only\n` +
   `# the model-facing tool is per-session.\n` +
@@ -161,16 +167,43 @@ const TOOL_WEB_BLOCK =
   `  config:\n` +
   `    fetch: true\n` +
   `    searchTimeoutMs: 60000\n`
+const mcpFleetRow = (id, server) =>
+  `- id: ${id}\n` +
+  `  name: '@deepseek-ai/dsh-mcp-client'\n` +
+  `  config:\n` +
+  `    transport: streamable-http\n` +
+  `    serverName: ${server}\n` +
+  `    url: http://127.0.0.1:9411/tool/${server}/mcp\n` +
+  `    headers:\n` +
+  `      authorization: !!js "'Bearer ' + (process.env.PRIVASYS_BEARER || '')"\n` +
+  `    failOnStartupError: false\n`
+const MCP_FLEET_ROWS =
+  `# Privasys: the built-in web tool is replaced by the attested MCP fleet —\n` +
+  `# each row is one attested platform tool app behind the in-TCB egress proxy\n` +
+  `# (mutual RA-TLS, DepSet-gated). failOnStartupError: false so an unreachable\n` +
+  `# tool app degrades that tool, never the whole preset.\n` +
+  mcpFleetRow('web-search', 'web_search') + `\n` +
+  mcpFleetRow('web-reader', 'web_reader') + `\n` +
+  mcpFleetRow('drive', 'drive')
 for (const preset of ['standard', 'ptc', 'cordis']) {
   edit(`packages/preset/agent-presets/presets/${preset}/agent.cordis.yml`, [
-    [
-      `preset ${preset} tool-web removal`,
-      TOOL_WEB_BLOCK,
-      `# Privasys: the built-in web tool is removed — web access rides the attested\n` +
-        `# MCP fleet (mcp__web_search__*, mcp__web_reader__*) via the egress proxy.\n`,
-    ],
+    [`preset ${preset} attested-fleet swap`, TOOL_WEB_BLOCK, MCP_FLEET_ROWS],
   ])
 }
+
+// The three mcp-client rows all share one module name, so the Plugins
+// inventory would render three identical "mcp-client" cards — show the row's
+// entry id (the tool identity: web-search / web-reader / drive) instead.
+edit('packages/client/ui-settings-plugin-inventory/src/client/PluginInventorySettingsTab.tsx', [
+  [
+    'mcp-client card title by entry id',
+    `        <strong className={css.cardTitle} title={moduleName}>{moduleShortName(moduleName)}</strong>`,
+    `        <strong className={css.cardTitle} title={moduleName}>{\n` +
+      `          /* Privasys: mcp-client rows are distinguished by entry id (tool identity). */\n` +
+      `          moduleName === '@deepseek-ai/dsh-mcp-client' && entryId !== null ? entryId : moduleShortName(moduleName)\n` +
+      `        }</strong>`,
+  ],
+])
 
 // --- 2d. cache_salt: partition the confidential backend's prefix cache ------
 // vLLM behind Confidential AI supports a per-request `cache_salt`; dsh's
@@ -212,7 +245,7 @@ edit('packages/llm/deepseek-llm-api-extensions/src/index.ts', [
 // the agent scope), so the profile-level Privasys persona never shows in
 // preset sessions — rewrite the preset texts themselves.
 const PRIVASYS_PERSONA =
-  `      You are a coding agent of the Privasys Attested Harness, powered by the {{model}} model running in a hardware-attested confidential enclave. Your working directory is {{cwd}}.`
+  `      You are a coding agent of the Privasys Harness, powered by the {{model}} model running in a hardware-attested confidential enclave. Your working directory is {{cwd}}.`
 for (const preset of ['standard', 'ptc']) {
   edit(`packages/preset/agent-presets/presets/${preset}/agent.cordis.yml`, [
     [
@@ -393,6 +426,19 @@ edit('packages/core/agent-loop/src/runtime-context.ts', [
     'runtime-context source label',
     `const SOURCE = '@deepseek-ai/dsh-system-prompt'`,
     `const SOURCE = 'runtime-context'`,
+  ],
+])
+
+// (f) The Settings "Models" provider card: the route stays `deepseek-official`
+// (a wire identifier the presets and default-model rows reference), but the
+// user-facing card names OUR attested provider, not DeepSeek. No config seam
+// exists — displayName is a literal at the registration site.
+edit('packages/llm/llm-deepseek/src/index.ts', [
+  [
+    'provider card rebrand',
+    `    { provider: PROVIDER, displayName: 'DeepSeek', settingsNs: NS, settingsPath: [] },`,
+    `    // Privasys: the settings card names the attested model behind this route.\n` +
+      `    { provider: PROVIDER, displayName: 'Privasys Qwen 3.6', settingsNs: NS, settingsPath: [] },`,
   ],
 ])
 

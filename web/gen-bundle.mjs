@@ -52,7 +52,7 @@ const missing = [...DROP].filter(id => !seen.includes(id))
 if (missing.length) throw new Error(`DROP ids not found in base: ${missing.join(', ')} — rebase the list.`)
 
 const kept = blocks.filter(b => !DROP.has(b.id))
-const header = `# @privasys/harness-bundle — the Privasys Attested Harness core composition.
+const header = `# @privasys/harness-bundle — the Privasys Privasys Harness core composition.
 #
 # ALLOW-LIST fork of @deepseek-ai/dsh-base (generated from the pinned dsh tree,
 # then reviewed + committed — regenerate with web/gen-bundle.mjs on a re-pin

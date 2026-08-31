@@ -30,13 +30,18 @@ const STYLE = `
    sight. Stack the foot actions vertically (css-module class names keep the
    readable "footerActions" stem, so the attribute selector is stable enough;
    revisit if upstream renames it). */
-[class*="footerActions"] { flex-direction: column !important; align-items: stretch !important; gap: 2px; }
+[class*="footerActions"] { flex-direction: column !important; align-items: stretch !important; gap: 0; }
+/* Sized to dsh's Settings trigger (ui-settings-general SettingsRoot.module.css
+   .trigger: 42px row, 14px/22px type, 12px radius, token colors) so the three
+   foot rows read as one family. */
 .pv-row { display: flex; align-items: center; gap: 8px; width: 100%;
-  padding: 7px 10px; border: none; border-radius: 8px; background: transparent;
-  color: inherit; font: inherit; font-size: 13px; cursor: pointer;
-  opacity: 0.85; text-align: left; }
-.pv-row:hover { background: rgba(128, 128, 128, 0.15); opacity: 1; }
-.pv-row-narrow { justify-content: center; padding: 7px 0; }
+  height: 42px; padding: 0 10px 0 8px; box-sizing: border-box; border: none;
+  border-radius: 12px; background: transparent;
+  color: var(--dsw-alias-label-primary, inherit); font-family: inherit;
+  font-size: 14px; line-height: 22px; cursor: pointer; text-align: left; }
+.pv-row:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(128, 128, 128, 0.15)); }
+.pv-row-narrow { flex: none; width: 36px; height: 36px; margin: 0 auto;
+  justify-content: center; gap: 0; padding: 0; border-radius: 50%; }
 .pv-row-verified { color: #2bbd82; }
 .pv-user-wrap { position: relative; width: 100%; }
 .pv-menu { position: absolute; bottom: calc(100% + 6px); left: 8px; z-index: 30;
