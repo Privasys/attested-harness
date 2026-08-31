@@ -19,6 +19,34 @@ if [[ -z "${PORT:-}" ]]; then
   exit 1
 fi
 
+# --- environment by app identity -------------------------------------------
+# ONE measured image serves both control planes. The launcher injects
+# PRIVASYS_APP_ID; this baked (measured) map selects the public host and the
+# control-plane bases for the browser shell — no per-deployment config input.
+case "${PRIVASYS_APP_ID:-}" in
+  ce9c451e-e0e4-46d5-9e56-269302f2a7c8)  # privasys-harness (production)
+    export HARNESS_PUBLIC_HOST="privasys-harness.apps.privasys.org"
+    PV_ATTEST_BASE="https://api.developer.privasys.org"
+    PV_API_BASE="https://api.privasys.org"
+    ;;
+  *)                                     # attested-harness (dev, and the default)
+    export HARNESS_PUBLIC_HOST="${HARNESS_PUBLIC_HOST:-attested-harness.apps-test.privasys.org}"
+    PV_ATTEST_BASE="https://api-test.developer.privasys.org"
+    PV_API_BASE="https://api-test.privasys.org"
+    ;;
+esac
+export HARNESS_APP_ID="${PRIVASYS_APP_ID:-590ebdc3-1b63-401f-bbb8-22d5f3886c5e}"
+# Hand the environment to the browser shell: privasys-shell.js merges
+# window.__PRIVASYS_CFG__ over its dev defaults (its documented seam).
+DIST_INDEX=/dsh/apps/web/dist/index.html
+if [[ ! -f "$DIST_INDEX" ]]; then
+  echo "[harness] WARNING: ${DIST_INDEX} not found — browser shell keeps dev defaults" >&2
+elif ! grep -q "__PRIVASYS_CFG__" "$DIST_INDEX"; then
+  CFG_TAG="<script>window.__PRIVASYS_CFG__={appId:\"${HARNESS_APP_ID}\",appHost:\"${HARNESS_PUBLIC_HOST}\",attestBase:\"${PV_ATTEST_BASE}\",apiBase:\"${PV_API_BASE}\"};</script>"
+  sed -i "s|<head>|<head>${CFG_TAG}|" "$DIST_INDEX"
+  grep -q "__PRIVASYS_CFG__" "$DIST_INDEX" || echo "[harness] WARNING: __PRIVASYS_CFG__ injection failed" >&2
+fi
+
 mkdir -p "${DSH_HOME:-/dsh-home}"
 
 DSH_PORT=3080
