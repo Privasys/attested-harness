@@ -171,6 +171,9 @@ func main() {
 
 	transport := attested.NewRATLSTransport()
 	transport.Deps = deps
+	// A dependency-set change evicts pooled verified connections: the next
+	// dial re-runs the gate against the new set.
+	deps.OnChange = transport.CloseIdleConnections
 	client := &http.Client{Transport: transport, Timeout: 5 * time.Minute}
 
 	mux := http.NewServeMux()

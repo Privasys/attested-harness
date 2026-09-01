@@ -4,15 +4,17 @@
 package attested
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/tls"
 	"fmt"
-	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	rc "enclave-os-mini/clients/go/ratls"
@@ -30,11 +32,18 @@ import (
 // that gate, AND attests the tool enclave before any data is sent — the
 // enclave-to-enclave transport the platform's governance model expects.
 //
-// Per request: dial with a fresh ClientHello challenge, verify the peer's
-// quote binds it (challenge-response report data), then send the request
-// verbatim. Connections are not pooled; a tool call's dominant cost is the
-// tool itself. Non-HTTPS URLs (local dev against plain-HTTP MCP servers)
-// fall through to the standard transport.
+// Per CONNECTION: dial with a fresh ClientHello challenge, verify the
+// peer's quote binds it (challenge-response report data) plus the
+// dependency gate and digest pins, then hand the verified *tls.Conn to a
+// pooled http.Transport. Requests multiplexed over that connection inherit
+// its handshake-bound attestation — the same verify-once-per-channel
+// argument the sealed relay's pooled gateway legs use. Pooling matters:
+// the old per-request shape re-ran the full handshake, quote verification,
+// AND a manager-minted client certificate on every tool call, which
+// dominated tool latency. On a declared-dependency change the DepSet's
+// OnChange hook evicts idle connections, so a revoked build cannot keep
+// serving over a stale verified channel. Non-HTTPS URLs (local dev against
+// plain-HTTP MCP servers) fall through to the standard transport.
 //
 // Building WITHOUT the Privasys Go fork (-tags ratls) leaves the challenge
 // unsupported: Connect fails at runtime and the catalogue logs the error —
@@ -77,6 +86,20 @@ type RATLSTransport struct {
 	// id (OID 3.6) and code hash (OID 3.2), which the callee's enclave-os
 	// verifies and republishes as X-Privasys-Peer-*.
 	getClientCert func(*tls.CertificateRequestInfo) (*tls.Certificate, error)
+
+	// pool multiplexes requests over verified connections (built lazily;
+	// dialVerified is the only way a connection enters it).
+	pool     *http.Transport
+	poolOnce sync.Once
+}
+
+// CloseIdleConnections evicts pooled verified connections. Wired to the
+// DepSet's OnChange hook: a dependency-set change must re-verify peers on
+// the next dial rather than ride an existing channel.
+func (t *RATLSTransport) CloseIdleConnections() {
+	if t.pool != nil {
+		t.pool.CloseIdleConnections()
+	}
 }
 
 // NewRATLSTransport returns a RoundTripper with sane defaults.
@@ -100,18 +123,40 @@ func (t *RATLSTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 		return p.RoundTrip(req)
 	}
-
-	host := req.URL.Hostname()
-	port := 443
-	if ps := req.URL.Port(); ps != "" {
-		if v, err := strconv.Atoi(ps); err == nil {
-			port = v
+	t.poolOnce.Do(func() {
+		t.pool = &http.Transport{
+			DialTLSContext: t.dialVerified,
+			// HTTP/1.1 keep-alive over the verified channel. h2 is never
+			// negotiated: the RA-TLS dial advertises the splice marker +
+			// http/1.1 only (see rc.Connect).
+			ForceAttemptHTTP2:   false,
+			MaxIdleConns:        16,
+			MaxIdleConnsPerHost: 4,
+			IdleConnTimeout:     90 * time.Second,
 		}
+	})
+	return t.pool.RoundTrip(req)
+}
+
+// dialVerified performs one attested RA-TLS dial: fresh challenge, quote
+// verification bound to THIS handshake, the declared-dependency gate, and
+// the per-host workload digest pin — all BEFORE the connection is handed to
+// the pool. A connection that returns from here is a verified channel; the
+// pool multiplexes requests over it until it idles out or the dependency
+// set changes (OnChange evicts idles).
+func (t *RATLSTransport) dialVerified(_ context.Context, _ string, addr string) (net.Conn, error) {
+	host, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		host, portStr = addr, "443"
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		port = 443
 	}
 
-	// Fresh nonce per request: the peer must bind its quote to THIS
-	// handshake (challenge-response report data), so a replayed cert
-	// or intercepted session cannot pass verification.
+	// Fresh nonce per connection: the peer must bind its quote to THIS
+	// handshake (challenge-response report data), so a replayed cert or
+	// intercepted session cannot pass verification.
 	nonce := make([]byte, 32)
 	if _, err := rand.Read(nonce); err != nil {
 		return nil, fmt.Errorf("ratls: nonce: %w", err)
@@ -133,7 +178,7 @@ func (t *RATLSTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, fmt.Errorf("ratls: connect %s: %w", host, err)
 	}
 
-	// Verify the enclave BEFORE sending any tool data.
+	// Verify the enclave BEFORE the connection can carry any tool data.
 	info := cli.InspectCert()
 	oid := ""
 	if info.Quote != nil {
@@ -181,40 +226,7 @@ func (t *RATLSTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 	}
 
-	var body []byte
-	if req.Body != nil {
-		body, err = io.ReadAll(req.Body)
-		req.Body.Close()
-		if err != nil {
-			cli.Close()
-			return nil, fmt.Errorf("ratls: read request body: %w", err)
-		}
-	}
-	// Forward the caller's FULL header set: the delegation protocol rides on
-	// custom headers (X-Privasys-On-Behalf-Of names the acting user to the
-	// tool), and the old bearer-only HTTPDo silently dropped them — Drive
-	// refused every agent-loop tool call with "missing on-behalf-of subject"
-	// while the catalogue (no headers needed) worked, masking the bug.
-	resp, err := cli.HTTPDoHeader(req.Method, req.URL.RequestURI(), host, body, req.Header)
-	if err != nil {
-		cli.Close()
-		return nil, fmt.Errorf("ratls: %s %s: %w", req.Method, host, err)
-	}
-	// The connection lives exactly as long as the response body.
-	resp.Body = &connBody{ReadCloser: resp.Body, cli: cli}
-	return resp, nil
-}
-
-// connBody ties the RA-TLS connection's lifetime to the response body.
-type connBody struct {
-	io.ReadCloser
-	cli *rc.Client
-}
-
-func (b *connBody) Close() error {
-	err := b.ReadCloser.Close()
-	b.cli.Close()
-	return err
+	return cli.Conn(), nil
 }
 
 // orUnset renders an empty digest readably in refusal messages.

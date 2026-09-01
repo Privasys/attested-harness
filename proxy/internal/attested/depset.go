@@ -40,6 +40,11 @@ type DepSet struct {
 	container  string
 	token      string
 	client     *http.Client
+
+	// OnChange fires after the declared set CHANGES (fold moved). The
+	// transport hooks it to evict pooled verified connections, so a peer
+	// admitted under the old set is re-verified on its next dial.
+	OnChange func()
 }
 
 // NewDepSet builds the runtime dependency-set client from the container's
@@ -192,6 +197,9 @@ func (d *DepSet) Refresh() error {
 	if prevLoaded && prevFold != nextFold {
 		log.Printf("[egress-proxy deps] declared dependency set CHANGED: %d entries, fold %s -> %s",
 			len(next.Entries), orNone(prevFold), orNone(nextFold))
+		if d.OnChange != nil {
+			d.OnChange()
+		}
 	}
 	return nil
 }
