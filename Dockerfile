@@ -10,7 +10,7 @@
 # ---- egress proxy (attestation authority; never Node) ---------------------
 FROM golang:1.22-bookworm AS proxy-builder
 ARG GO_RATLS_VERSION=privasys-v0.5.1-go1.26.5
-ARG RA_TLS_CLIENTS_REF=312969f1949d4bdf8048a853f1ab9cfc06622426
+ARG RA_TLS_CLIENTS_REF=4e2a6be7f3d26761632d688037139b86682838f5
 RUN curl -sL "https://github.com/Privasys/go/releases/download/${GO_RATLS_VERSION}/go-ratls-${GO_RATLS_VERSION}-linux-amd64.tar.gz" \
       -o /tmp/go-ratls.tar.gz \
  && tar -C /usr/local -xzf /tmp/go-ratls.tar.gz && rm /tmp/go-ratls.tar.gz \
