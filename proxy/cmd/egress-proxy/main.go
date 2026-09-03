@@ -24,10 +24,7 @@
 // no tool-grant passthrough yet (grantPinned is always false); per-session
 // user tools arrive with WS2.
 //
-// Build: production images use the Privasys Go fork with -tags ratls (the
-// ClientHello challenge extension). A stock-toolchain build compiles but
-// Connect fails at runtime, so every egress refuses — fail closed, never
-// fail open.
+// Build: upstream Go (RA-TLS v2 needs no patched TLS stack).
 package main
 
 import (

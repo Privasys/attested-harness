@@ -1,26 +1,20 @@
 # Privasys Harness — measured app image (WS3).
 #
-# Three stages: the egress proxy on the Privasys Go fork (-tags ratls, the
-# ClientHello challenge extension), the vendored dsh tree at the pin, and a
+# Three stages: the egress proxy on upstream Go (RA-TLS v2 needs no patched
+# TLS stack), the vendored dsh tree at the pin, and a
 # node runtime that runs both under one entrypoint. The dsh source is
 # vendored AT IMAGE BUILD from the public repo at the pinned commit — the
 # composition (app/profile.cordis.yml) plus this file IS the measured
 # identity of the harness (D-decisions: extend, don't fork).
 
 # ---- egress proxy (attestation authority; never Node) ---------------------
-FROM golang:1.22-bookworm AS proxy-builder
-ARG GO_RATLS_VERSION=privasys-v0.5.1-go1.26.5
+FROM golang:1.26-bookworm AS proxy-builder
 ARG RA_TLS_CLIENTS_REF=4e2a6be7f3d26761632d688037139b86682838f5
-RUN curl -sL "https://github.com/Privasys/go/releases/download/${GO_RATLS_VERSION}/go-ratls-${GO_RATLS_VERSION}-linux-amd64.tar.gz" \
-      -o /tmp/go-ratls.tar.gz \
- && tar -C /usr/local -xzf /tmp/go-ratls.tar.gz && rm /tmp/go-ratls.tar.gz \
- && git clone https://github.com/Privasys/ra-tls-clients /build/attested-harness/ra-tls-clients \
+RUN git clone https://github.com/Privasys/ra-tls-clients /build/attested-harness/ra-tls-clients \
  && git -C /build/attested-harness/ra-tls-clients checkout "${RA_TLS_CLIENTS_REF}"
-ENV GOROOT=/usr/local/go-ratls
-ENV PATH=/usr/local/go-ratls/bin:${PATH}
 COPY proxy /build/attested-harness/proxy
 WORKDIR /build/attested-harness/proxy
-RUN CGO_ENABLED=0 go build -tags ratls -trimpath -ldflags="-s -w" \
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
       -o /egress-proxy ./cmd/egress-proxy
 
 # ---- dsh at the pin -------------------------------------------------------

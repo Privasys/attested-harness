@@ -6,10 +6,10 @@ workstation (no enclave): stock dsh headless agent → egress proxy
 (fork build, per-request attestation + dependency-set gate) → Confidential
 AI.
 
-Run it (WSL, dsh checkout at the pin, fork toolchain at ~/go-ratls):
+Run it (WSL, dsh checkout at the pin):
 
 ```sh
-cd harness/proxy && ~/go-ratls/bin/go build -tags ratls -o ~/bin/egress-proxy ./cmd/egress-proxy
+cd harness/proxy && go build -o ~/bin/egress-proxy ./cmd/egress-proxy
 EGRESS_PROXY_LISTEN=127.0.0.1:9412 HARNESS_MODEL_HOST=<cai-host> ~/bin/egress-proxy &
 cd ~/dsh && DEEPSEEK_API_KEY=<platform bearer> DEEPSEEK_BASE_URL=http://127.0.0.1:9412/model/v1 \
   pnpm dsh --profile headless --patch <this file> "your task"
