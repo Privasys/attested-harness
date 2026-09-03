@@ -6,7 +6,7 @@
 // inference, tool apps — must pass. It terminates plain HTTP from the dsh
 // plugins and dials the peer over mutual RA-TLS (challenge extension via the
 // Privasys Go fork), enforcing the app's declared dependency set (OID
-// 65230.6.1) fail-closed.
+// 65230.7.1) fail-closed.
 //
 // Design rule (D2): attestation authority never lives in Node. The dsh-side
 // plugins route through this proxy and render its verdicts; they cannot

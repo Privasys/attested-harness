@@ -5,10 +5,8 @@ package attested
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/tls"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"os"
@@ -57,7 +55,7 @@ type RATLSTransport struct {
 	// ExpectedDigests optionally pins the workload the peer must be
 	// running, keyed by lowercase hostname: after the attestation
 	// verifies, the peer leaf's workload code hash (OID
-	// 1.3.6.1.4.1.65230.3.2) must equal the pinned bare-hex digest or the
+	// 1.3.6.1.4.1.65230.4.2) must equal the pinned bare-hex digest or the
 	// request is refused. This is what makes a granted tool's
 	// expected_digest an enforced promise, not just UI copy: a tool
 	// enclave that was redeployed with different code since the user
@@ -86,6 +84,9 @@ type RATLSTransport struct {
 	// id (OID 3.6) and code hash (OID 3.2), which the callee's enclave-os
 	// verifies and republishes as X-Privasys-Peer-*.
 	getClientCert func(*tls.CertificateRequestInfo) (*tls.Certificate, error)
+	// clientEvidence proves the presented identity on a connection when the
+	// callee requires it (RA-TLS v2 mutual leg). Nil off platform.
+	clientEvidence rc.ClientEvidenceSource
 
 	// pool multiplexes requests over verified connections (built lazily;
 	// dialVerified is the only way a connection enters it).
@@ -106,11 +107,12 @@ func (t *RATLSTransport) CloseIdleConnections() {
 func NewRATLSTransport() *RATLSTransport {
 	t := &RATLSTransport{Timeout: 15 * time.Second}
 	if mgrURL := os.Getenv("PRIVASYS_MANAGER_URL"); mgrURL != "" {
-		if _, getCert, err := rc.EgressClientCert(mgrURL, os.Getenv("PRIVASYS_CONTAINER_TOKEN")); err != nil {
-			log.Printf("[egress-proxy] egress client identity unavailable, tool dials stay server-auth only: %v", err)
-		} else {
-			t.getClientCert = getCert
-		}
+		// The manager mints the identity (no evidence in it) and quotes it per
+		// connection; both are fetched lazily, so off-platform dials stay
+		// server-auth only.
+		id := rc.NewEgressIdentity(mgrURL, os.Getenv("PRIVASYS_CONTAINER_TOKEN"))
+		t.getClientCert = id.GetClientCertificate
+		t.clientEvidence = id.ClientEvidence
 	}
 	return t
 }
@@ -157,11 +159,6 @@ func (t *RATLSTransport) dialVerified(_ context.Context, _ string, addr string) 
 	// Fresh nonce per connection: the peer must bind its quote to THIS
 	// handshake (challenge-response report data), so a replayed cert or
 	// intercepted session cannot pass verification.
-	nonce := make([]byte, 32)
-	if _, err := rand.Read(nonce); err != nil {
-		return nil, fmt.Errorf("ratls: nonce: %w", err)
-	}
-
 	timeout := t.Timeout
 	if timeout <= 0 {
 		timeout = 15 * time.Second
@@ -169,27 +166,23 @@ func (t *RATLSTransport) dialVerified(_ context.Context, _ string, addr string) 
 	cli, err := rc.Connect(host, port, &rc.Options{
 		ServerName: host,
 		Timeout:    timeout,
-		Challenge:  nonce,
+		// Challenge mode (the default): the callee's evidence is bound to this
+		// connection's exporter value and a fresh context, so a replayed
+		// quote or an intercepted session cannot pass verification.
 		// Mutual leg: answer a callee that requires an attested client
-		// certificate. Nil off platform, leaving the dial server-auth only.
+		// identity. Nil off platform, leaving the dial server-auth only.
 		GetClientCertificate: t.getClientCert,
+		ClientEvidence:       t.clientEvidence,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("ratls: connect %s: %w", host, err)
 	}
 
 	// Verify the enclave BEFORE the connection can carry any tool data.
-	info := cli.InspectCert()
-	oid := ""
-	if info.Quote != nil {
-		oid = info.Quote.OID
-	}
-	policy := &rc.VerificationPolicy{
-		TEE:        teeFromOID(oid),
-		ReportData: rc.ReportDataChallengeResponse,
-		Nonce:      nonce,
-	}
-	if _, verr := cli.VerifyCertificate(policy); verr != nil {
+	tee := teeOf(cli.Evidence())
+	policy := &rc.VerificationPolicy{TEE: tee}
+	info, verr := cli.VerifyCertificate(policy)
+	if verr != nil {
 		cli.Close()
 		return nil, fmt.Errorf("ratls: %s attestation failed — refusing to send tool data: %w", host, verr)
 	}
@@ -202,7 +195,7 @@ func (t *RATLSTransport) dialVerified(_ context.Context, _ string, addr string) 
 	// move our traffic there.
 	if t.Deps != nil {
 		grantPinned := t.ExpectedDigests[strings.ToLower(host)] != ""
-		if derr := t.Deps.VerifyPeer(info, teeFromOID(oid), grantPinned); derr != nil {
+		if derr := t.Deps.VerifyPeer(info, tee, grantPinned); derr != nil {
 			cli.Close()
 			return nil, fmt.Errorf("ratls: %s failed the declared-dependency gate — refusing to send tool data: %w", host, derr)
 		}
@@ -237,17 +230,11 @@ func orUnset(v string) string {
 	return v
 }
 
-// teeFromOID maps a quote-extension OID to the TEE type the verification
-// policy expects (mirrors the CLI's ratls package).
-func teeFromOID(oid string) rc.TeeType {
-	switch oid {
-	case rc.OidTDXQuote:
+// teeOf maps the evidence family of a connection to the TEE type the
+// verification policy expects ("tdx" and "tdx-gpu" are TDX; anything else SGX).
+func teeOf(ev *rc.Evidence) rc.TeeType {
+	if ev != nil && strings.HasPrefix(ev.TEE, "tdx") {
 		return rc.TeeTypeTDX
-	case rc.OidSEVSNPReport:
-		return rc.TeeTypeSEVSNP
-	case rc.OidNVIDIAGPUEvidence:
-		return rc.TeeTypeNVIDIAGPU
-	default:
-		return rc.TeeTypeSGX
 	}
+	return rc.TeeTypeSGX
 }
