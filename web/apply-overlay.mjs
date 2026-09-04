@@ -264,6 +264,30 @@ edit('packages/preset/agent-presets/presets/cordis/agent.cordis.yml', [
   ],
 ])
 
+// --- 2e2. reasoning field compatibility (vLLM >= 0.28.0) ---------------------
+// vLLM removed `reasoning_content` from chat output at 0.28.0 (#50624,
+// after the rename in #33402): the engine now emits only `reasoning`, and
+// input still accepts both. The failure is SILENT — a client reading
+// delta.reasoning_content simply sees nothing and loses the entire chain of
+// thought with no error. dsh's adapter reads only the old field, so accept
+// either, which is exactly what our own chat front-end and Confidential
+// AI's agent loop already do. Harmless against a DeepSeek-cloud endpoint,
+// which keeps emitting reasoning_content.
+edit('packages/llm/llm-deepseek/src/translate.ts', [
+  [
+    'reasoning delta field fallback',
+    `      const reasoning = delta?.reasoning_content`,
+    `      const reasoning = delta?.reasoning_content ?? delta?.reasoning`,
+  ],
+])
+edit('packages/llm/llm-deepseek/src/types.ts', [
+  [
+    'WireDelta reasoning field',
+    `  reasoning_content?: string | null\n  tool_calls?: WireToolCallDelta[]`,
+    `  reasoning_content?: string | null\n  /** vLLM >= 0.28.0 emits the reasoning channel under this name. */\n  reasoning?: string | null\n  tool_calls?: WireToolCallDelta[]`,
+  ],
+])
+
 // --- 2f0. conversation hero headline ----------------------------------------
 // The empty-session hero tagline is a locale literal ("Into the Unknown") —
 // replace with the Privasys promise in both dictionaries.
