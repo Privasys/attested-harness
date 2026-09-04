@@ -18,7 +18,7 @@
  */
 import { test, expect } from '@playwright/test'
 
-const URL = process.env.E2E_HARNESS_URL || 'https://attested-harness.apps-test.privasys.org'
+const URL = process.env.E2E_HARNESS_URL || 'https://attested-harness.apps.test.privasys.org'
 
 test.describe('attested-harness public surface', () => {
   test('serves the UI shell unsealed (exemption)', async ({ page }) => {

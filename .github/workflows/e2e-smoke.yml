@@ -9,7 +9,7 @@ on:
     inputs:
       url:
         description: 'Harness URL to smoke'
-        default: 'https://attested-harness.apps-test.privasys.org'
+        default: 'https://attested-harness.apps.test.privasys.org'
   schedule:
     - cron: '17 7 * * *'
 
@@ -27,6 +27,6 @@ jobs:
         run: npx playwright install --with-deps chromium
       - working-directory: web/e2e
         env:
-          E2E_HARNESS_URL: ${{ github.event.inputs.url || 'https://attested-harness.apps-test.privasys.org' }}
+          E2E_HARNESS_URL: ${{ github.event.inputs.url || 'https://attested-harness.apps.test.privasys.org' }}
           CI: 'true'
         run: npx playwright test

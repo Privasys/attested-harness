@@ -30,8 +30,8 @@ case "${PRIVASYS_APP_ID:-}" in
     PV_API_BASE="https://api.privasys.org"
     ;;
   *)                                     # attested-harness (dev, and the default)
-    export HARNESS_PUBLIC_HOST="${HARNESS_PUBLIC_HOST:-attested-harness.apps-test.privasys.org}"
-    PV_ATTEST_BASE="https://api-test.developer.privasys.org"
+    export HARNESS_PUBLIC_HOST="${HARNESS_PUBLIC_HOST:-attested-harness.apps.test.privasys.org}"
+    PV_ATTEST_BASE="https://api.developer.test.privasys.org"
     PV_API_BASE="https://api-test.privasys.org"
     ;;
 esac

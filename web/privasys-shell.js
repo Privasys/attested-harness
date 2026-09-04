@@ -32,7 +32,7 @@
 // --- configuration ---------------------------------------------------------
 // Deploy-time overridable via a `window.__PRIVASYS_CFG__ = {...}` <script>
 // injected into index.html (see the Dockerfile / entrypoint). Defaults target
-// the dev control plane + the apps-test enclave gateway the harness runs on.
+// the dev control plane + the apps.test enclave gateway the harness runs on.
 const CFG = Object.assign(
     {
         // Management-service API base (session-relay metadata, attribute billing).
@@ -51,10 +51,10 @@ const CFG = Object.assign(
         // The app as registered on the platform (attest-report lookups).
         appId: '590ebdc3-1b63-401f-bbb8-22d5f3886c5e',
         // The enclave host the sealed session is attested against.
-        appHost: 'attested-harness.apps-test.privasys.org',
+        appHost: 'attested-harness.apps.test.privasys.org',
         // Control plane that owns THIS app's row (the /attest report) — the
-        // dev CP for the apps-test harness. Anonymous endpoint.
-        attestBase: 'https://api-test.developer.privasys.org',
+        // dev CP for the apps.test harness. Anonymous endpoint.
+        attestBase: 'https://api.developer.test.privasys.org',
         // Attestation server quote verification (needs an audience token).
         verifyQuoteUrl: 'https://as.privasys.org/verify-quote',
         // Broker relay for the wallet QR / push channel.

@@ -121,7 +121,7 @@ ENV DSH_HOME=/dsh-home
 # The app's stable public host (name.domain), used for dsh's --trusted-host and
 # the ingress Director's Host pinning so dsh's /api DNS-rebinding fence accepts
 # the browser's sealed same-origin requests. Stable across enclaves for this app.
-ENV HARNESS_PUBLIC_HOST=attested-harness.apps-test.privasys.org
+ENV HARNESS_PUBLIC_HOST=attested-harness.apps.test.privasys.org
 # No telemetry leaves the enclave: any non-empty value hard-disables dsh's
 # telemetry row at profile composition (profile-boot resolveTelemetryPatch).
 ENV DSH_TELEMETRY_DISABLED=1
