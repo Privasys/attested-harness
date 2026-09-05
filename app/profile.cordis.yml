@@ -5,6 +5,17 @@
 - id: llm-deepseek
   name: "@deepseek-ai/dsh-llm-deepseek"
   config:
+    # PIN THE ENDPOINT IN THE MEASURED CONFIG. The adapter resolves
+    #   config.baseURL ?? env DEEPSEEK_BASE_URL ?? PUBLIC_BASE_URL
+    # and PUBLIC_BASE_URL is https://api.deepseek.com — so relying on the
+    # environment variable alone means that ANY failure to surface it (a
+    # launch-environment change, a composition change, a stray unset) sends
+    # this enclave's prompts to the PUBLIC DeepSeek API, silently, with no
+    # attestation and no egress gate. Setting it here removes that fallback
+    # from the identity: the only reachable model endpoint is the in-TCB
+    # egress proxy, which fails closed when its attested peer is refused.
+    # entrypoint.sh still exports the same value for headless/dev runs.
+    baseURL: http://127.0.0.1:9411/model/v1
     thinking: enabled
     reasoningEffort: low
     models:
