@@ -119,7 +119,14 @@ func forward(w http.ResponseWriter, r *http.Request, client *http.Client, host, 
 	resp, err := client.Do(req)
 	if err != nil {
 		// Attestation refusals land here: surface the exact verdict to the
-		// plugin so the session log records WHY the leg was refused.
+		// plugin so the session log records WHY the leg was refused — AND log
+		// it. Without this line a refused dial is completely silent on the
+		// server: the caller sees only its own generic "HTTP 502" (dsh prints
+		// the status, never our body), and the success path's "model leg"
+		// line never runs, so the logs look like no request happened at all.
+		// That combination cost a full day's debugging on 2026-09-05.
+		log.Printf("[egress-proxy] %s leg REFUSED: %s %s -> %v",
+			map[bool]string{true: "model", false: "tool"}[repro], r.Method, host, err)
 		http.Error(w, fmt.Sprintf(`{"error":"egress-proxy: %v"}`, err), http.StatusBadGateway)
 		return
 	}
