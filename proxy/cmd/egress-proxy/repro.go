@@ -6,6 +6,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -69,6 +70,9 @@ type reproScanBody struct {
 	br     *bufio.Reader
 	buf    []byte // current line remainder being served to the caller
 	logged bool
+	// lossyFound bounds the dsh-v2 lossless diagnostic (see lossyKeys) to a
+	// few findings per response so a long stream cannot flood the log.
+	lossyFound int
 }
 
 func newReproScanBody(rc io.ReadCloser) *reproScanBody {
@@ -100,6 +104,18 @@ func (b *reproScanBody) scan(line []byte) {
 		return
 	}
 	payload := strings.TrimSpace(strings.TrimPrefix(s, "data:"))
+	// dsh session-format-v2 diagnostic: report chunks carrying a value the
+	// client refuses to embed (negative zero / non-finite). Runs before the
+	// reproducibility filter so it sees EVERY chunk, not just the trailer.
+	if b.lossyFound < 3 && payload != "[DONE]" {
+		for _, k := range lossyKeys([]byte(payload)) {
+			log.Printf("[egress-proxy] model chunk carries a value dsh v2 refuses: %s", k)
+			b.lossyFound++
+			if b.lossyFound >= 3 {
+				break
+			}
+		}
+	}
 	if !strings.Contains(payload, `"reproducibility"`) {
 		return
 	}
@@ -111,6 +127,61 @@ func (b *reproScanBody) scan(line []byte) {
 	}
 	logRepro("stream", frame.Reproducibility)
 	b.logged = true
+}
+
+// lossyKeys reports the JSON key paths in one SSE payload whose numeric value
+// dsh's session format v2 refuses. From dsh 0.1.3 every raw model chunk is
+// embedded in the session log and validated by snapshotJsonValue, which
+// rejects NaN, ±Infinity and NEGATIVE ZERO; a rejected chunk breaks the
+// client's event feed on every reconnect ("Assistant stream raw chunk must be
+// a lossless JSON object"). JSON.parse cannot yield NaN/Infinity, so -0 is the
+// realistic offender — and it is invisible in any normal log, hence this scan.
+//
+// Diagnostic only: it reports KEY PATHS, never values or user content, and the
+// caller logs a bounded number of findings. Remove once the source is fixed.
+func lossyKeys(payload []byte) []string {
+	var v any
+	dec := json.NewDecoder(strings.NewReader(string(payload)))
+	dec.UseNumber()
+	if err := dec.Decode(&v); err != nil {
+		return nil
+	}
+	var out []string
+	var walk func(node any, path string)
+	walk = func(node any, path string) {
+		switch t := node.(type) {
+		case map[string]any:
+			for k, child := range t {
+				p := k
+				if path != "" {
+					p = path + "." + k
+				}
+				walk(child, p)
+			}
+		case []any:
+			for i, child := range t {
+				walk(child, fmt.Sprintf("%s[%d]", path, i))
+			}
+		case json.Number:
+			s := t.String()
+			// Negative zero in any spelling (-0, -0.0, -0e5): the sign is
+			// what matters, and every digit before the exponent is zero.
+			if strings.HasPrefix(s, "-") {
+				mant := strings.TrimPrefix(s, "-")
+				if e := strings.IndexAny(mant, "eE"); e >= 0 {
+					mant = mant[:e]
+				}
+				if strings.Trim(mant, "0.") == "" {
+					out = append(out, path+" = "+s)
+				}
+			}
+			if strings.ContainsAny(s, "nN") || strings.Contains(s, "Inf") {
+				out = append(out, path+" = "+s)
+			}
+		}
+	}
+	walk(v, "")
+	return out
 }
 
 func (b *reproScanBody) Close() error { return b.rc.Close() }
