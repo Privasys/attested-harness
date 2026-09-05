@@ -14,8 +14,18 @@ set -euo pipefail
 # Env (optional): HARNESS_PUBLIC_HOST (browser-trust fence authority),
 # PRIVASYS_BEARER (dev-only model auth; on-platform uses the attested cert).
 
+# Send this script's stdout to stderr for the rest of the run, and dsh's with
+# it. The platform's container logger captures STDERR only, so everything on
+# stdout — the entrypoint's own progress echoes, the boot-smoke verdict, and
+# every line dsh itself prints — was invisible in `admin/enclave/container-logs`
+# while the Go proxy's log output (stderr by default) came through. That left
+# the enclave debuggable only for faults the proxy happened to see, which cost
+# a full investigation cycle on 2026-09-05. Ordering matters: redirect before
+# the first echo so nothing is lost.
+exec 1>&2
+
 if [[ -z "${PORT:-}" ]]; then
-  echo "[harness] ERROR: PORT is required" >&2
+  echo "[harness] ERROR: PORT is required"
   exit 1
 fi
 
